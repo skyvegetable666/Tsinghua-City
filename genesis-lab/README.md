@@ -335,6 +335,25 @@ python -m pytest -q tests/test_cli_integration.py tests/test_two_agent_world.py 
 
 > 这些测试在 Linux/macOS 上开发验证；Windows 下依赖 Docker Desktop 的容器路径未被本仓库的测试覆盖，请用 `python -m supervisor up --mock` 做首次端到端确认。
 
+### 提交前卫生检查
+
+真实 key、运行记录和本机环境**不能进仓库**：
+
+- `.env` 与 `.env.*`（只保留 `.env.example` 占位符）；
+- `runs/`（创世纪日志、消息全文、transcript、metrics、mock 请求记录）；
+- `.venv/`、`__pycache__/`、`.pytest_cache/`、`.ruff_cache/`、`*.log`、`*.jsonl`；
+- `*.pem`、`*.key` 等凭据文件。
+
+提交前运行：
+
+```powershell
+python scripts/check_hygiene.py
+```
+
+它会扫描 `git ls-files`（即真正会被 push 的文件），检查真实 key 模式、私钥头、运行产物和凭据后缀。`.env.example` 里的 `sk-REPLACE_ME` 占位符是允许的。
+
+另外 `config/mission.md` / `config/world.md` 可能包含你的实验意图或私人设定；如果仓库是公开的，提交前请自行确认它们可以公开。
+
 ---
 
 ## 12. 设计文档

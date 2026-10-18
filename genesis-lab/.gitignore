@@ -1,11 +1,24 @@
 # secrets & local state
 .env
+.env.*
+!.env.example
 .venv/
 runs/
 *.pyc
 __pycache__/
 .pytest_cache/
+.ruff_cache/
+.mypy_cache/
 .research/
+*.log
+*.jsonl
+.coverage
+htmlcov/
+coverage.xml
+
+# credential material
+*.pem
+*.key
 
 # OS
 .DS_Store

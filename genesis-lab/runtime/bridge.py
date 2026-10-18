@@ -23,6 +23,7 @@ import secrets
 import signal
 import sys
 import time
+import uuid
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -122,6 +123,7 @@ class Runtime:
         self._wake_lock = asyncio.Lock()
         self._delivery_lock = asyncio.Lock()
         self._ack_tasks: set[asyncio.Task] = set()
+        self._bg_tasks: set[asyncio.Task] = set()
         self._offline_posted = False
         self._last_error: str | None = None
 
@@ -169,7 +171,22 @@ class Runtime:
             len(self.inbox),
         )
         if self.state == "idle" and not self.exit_event.is_set():
-            asyncio.create_task(self.wake_if_pending(reason="message arrived while idle"))
+            self._spawn(self.wake_if_pending(reason="message arrived while idle"))
+
+    def _spawn(self, coro) -> asyncio.Task:
+        """Run a background coroutine and keep a strong reference to it."""
+        task = asyncio.create_task(coro)
+        self._bg_tasks.add(task)
+        task.add_done_callback(self._on_bg_task_done)
+        return task
+
+    def _on_bg_task_done(self, task: asyncio.Task) -> None:
+        self._bg_tasks.discard(task)
+        if task.cancelled():
+            return
+        error = task.exception()
+        if error is not None:
+            log.error("background task failed: %r", error)
 
     # -------------------------------------------------------------- hook entry
     async def handle_hook(self, _payload: dict | None = None) -> dict:
@@ -222,7 +239,9 @@ class Runtime:
                 "error": f"message too long ({len(text)} chars); limit is {self.config.max_message_chars}",
             }
         try:
-            response = await self.broker.send(self.config.peer_name, text)
+            response = await self.broker.send(
+                self.config.peer_name, text, client_message_id=uuid.uuid4().hex
+            )
         except Exception as exc:
             log.warning("send failed: %s", exc)
             return {"ok": False, "error": f"supervisor unavailable: {exc}"}
@@ -513,6 +532,11 @@ class Runtime:
         self.state = "stopped"
 
     async def _cleanup(self) -> None:
+        for task in list(self._bg_tasks):
+            task.cancel()
+        if self._bg_tasks:
+            await asyncio.gather(*list(self._bg_tasks), return_exceptions=True)
+            self._bg_tasks.clear()
         if self.harness is not None and not self.harness.exited.is_set():
             try:
                 await self.harness.stop(grace=5)

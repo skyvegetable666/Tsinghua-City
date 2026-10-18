@@ -145,6 +145,10 @@ class Broker:
         self._chat_count = 0
         self._offline_tasks: dict[str, asyncio.Task] = {}
         self._ending_task: asyncio.Task | None = None
+        # Retry-safe client ids: a lost HTTP response must not duplicate a chat
+        # message, and a retried trace batch must not double count tokens.
+        self._client_messages: dict[tuple[str, str], str] = {}
+        self._trace_batches: set[tuple[str, str]] = set()
         self._runner: web.AppRunner | None = None
         self._site: web.TCPSite | None = None
 
@@ -345,7 +349,10 @@ class Broker:
         state = str(body.get("state") or "")
         if state not in {"starting", "working", "idle", "offline"}:
             return self._error("invalid state")
-        turn = int(body.get("turn") or 0)
+        try:
+            turn = int(body.get("turn") or 0)
+        except (TypeError, ValueError):
+            return self._error("turn must be an integer")
         previous = agent.state
         agent.turn = turn
         if state == "offline":
@@ -378,8 +385,13 @@ class Broker:
         if not isinstance(ids, list):
             return self._error("message_ids must be a list")
         channel = str(body.get("channel") or "unknown")
-        turn = int(body.get("turn") or 0)
-        received_map = body.get("received_at") or {}
+        try:
+            turn = int(body.get("turn") or 0)
+        except (TypeError, ValueError):
+            return self._error("turn must be an integer")
+        received_map = body.get("received_at")
+        if not isinstance(received_map, dict):
+            received_map = {}
         now = time.time()
         accepted = 0
         for message_id in ids:
@@ -421,6 +433,14 @@ class Broker:
         events = body.get("events") or []
         if not isinstance(events, list):
             return self._error("events must be a list")
+        batch_id = str(body.get("batch_id") or "").strip()
+        if len(batch_id) > 128:
+            return self._error("batch_id too long")
+        if batch_id:
+            key = (agent.spec.agent_id, batch_id)
+            if key in self._trace_batches:
+                return web.json_response({"ok": True, "duplicate": True})
+            self._trace_batches.add(key)
         for event in events[:MAX_TRACE_EVENTS]:
             if not isinstance(event, dict):
                 continue
@@ -443,7 +463,10 @@ class Broker:
                     agent.cost_usd += float(event.get("cost_usd") or 0)
                 except (TypeError, ValueError):
                     pass
-                agent.turn = int(event.get("turn") or agent.turn)
+                try:
+                    agent.turn = int(event.get("turn") or agent.turn)
+                except (TypeError, ValueError):
+                    pass
             elif kind == "error":
                 self._log(f"{agent.spec.name} error: {str(event.get('error'))[:200]}")
         return web.json_response({"ok": True})
@@ -473,6 +496,21 @@ class Broker:
                 f"message too long ({len(text)} chars); limit is {self.settings.max_message_chars}"
             )
 
+        client_message_id = str(body.get("client_message_id") or "").strip()
+        if len(client_message_id) > 128:
+            return self._error("client_message_id too long")
+        if client_message_id:
+            existing_id = self._client_messages.get(
+                (agent.spec.agent_id, client_message_id)
+            )
+            existing = self.messages.get(existing_id) if existing_id else None
+            if existing is not None:
+                if existing.text != text:
+                    return self._error(
+                        "client_message_id reused with different text", 409
+                    )
+                return web.json_response(self._chat_ack(existing, peer, duplicate=True))
+
         message = self._enqueue(
             recipient_id=peer.spec.agent_id,
             sender_id=agent.spec.agent_id,
@@ -480,20 +518,13 @@ class Broker:
             kind="chat",
             text=text,
         )
+        if client_message_id:
+            self._client_messages[(agent.spec.agent_id, client_message_id)] = message.id
         self._chat_count += 1
         if self.settings.run_max_messages and self._chat_count >= self.settings.run_max_messages:
             asyncio.create_task(self.request_end("message budget exhausted"))
 
-        return web.json_response(
-            {
-                "ok": True,
-                "message_id": message.id,
-                "seq": message.seq,
-                "queued_at": utc_iso(message.sent_at),
-                "peer_state": peer.state,
-                "max_message_chars": self.settings.max_message_chars,
-            }
-        )
+        return web.json_response(self._chat_ack(message, peer))
 
     async def h_system_message(self, request: web.Request) -> web.Response:
         if request.get(AUTH_AGENT) is not None:
@@ -647,6 +678,19 @@ class Broker:
 
     def _log(self, text: str) -> None:
         self.log_queue.put_nowait(time.strftime("%H:%M:%S") + " " + text)
+
+    def _chat_ack(self, message: Message, peer: AgentRuntime, *, duplicate: bool = False) -> dict:
+        ack = {
+            "ok": True,
+            "message_id": message.id,
+            "seq": message.seq,
+            "queued_at": utc_iso(message.sent_at),
+            "peer_state": peer.state,
+            "max_message_chars": self.settings.max_message_chars,
+        }
+        if duplicate:
+            ack["duplicate"] = True
+        return ack
 
     def _enqueue(
         self,

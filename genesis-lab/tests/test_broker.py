@@ -282,6 +282,59 @@ async def test_per_agent_token_cannot_impersonate(world):
         assert response.status == 200
 
 
+async def test_send_and_trace_retries_are_idempotent(world):
+    env = world
+    await register(env, "a", "agent-a")
+    await register(env, "b", "agent-b")
+    stream_a = await open_stream(env, "a")
+    stream_b = await open_stream(env, "b")
+    await stream_a.next()
+    await stream_b.next()
+
+    body = {"recipient": "agent-b", "text": "only once", "client_message_id": "cid-1"}
+    first = await post_json(env, "/v1/agents/a/messages", body)
+    second = await post_json(env, "/v1/agents/a/messages", body)
+    assert first.status == 200 and second.status == 200
+    first_json = await first.json()
+    second_json = await second.json()
+    assert first_json["message_id"] == second_json["message_id"]
+    assert second_json.get("duplicate") is True
+    chat_from_a = [
+        m
+        for m in env["broker"].messages.values()
+        if m.sender_id == "a" and m.kind == "chat"
+    ]
+    assert len(chat_from_a) == 1
+
+    conflicting = await post_json(
+        env,
+        "/v1/agents/a/messages",
+        {"recipient": "agent-b", "text": "different", "client_message_id": "cid-1"},
+    )
+    assert conflicting.status == 409
+
+    trace = {
+        "batch_id": "batch-1",
+        "events": [
+            {
+                "type": "turn_result",
+                "turn": 1,
+                "usage": {"input_tokens": 10, "output_tokens": 2},
+                "cost_usd": 0.001,
+            }
+        ],
+    }
+    first_trace = await post_json(env, "/v1/agents/a/trace", trace)
+    second_trace = await post_json(env, "/v1/agents/a/trace", trace)
+    assert first_trace.status == 200 and second_trace.status == 200
+    assert (await second_trace.json()).get("duplicate") is True
+    assert env["broker"].agents["a"].usage["input_tokens"] == 10
+    assert env["broker"].agents["a"].cost_usd == pytest.approx(0.001)
+
+    await stream_a.close()
+    await stream_b.close()
+
+
 async def test_presence_offline_notice(world):
     env = world
     await register(env, "a", "agent-a")

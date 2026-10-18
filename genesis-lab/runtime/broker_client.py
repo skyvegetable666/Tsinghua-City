@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import uuid
 from collections.abc import Awaitable, Callable
 
 import aiohttp
@@ -27,6 +28,7 @@ class BrokerClient:
         self._session: aiohttp.ClientSession | None = None
         self._headers = {"Authorization": f"Bearer {token}"}
         self._trace_queue: asyncio.Queue[dict] = asyncio.Queue()
+        self._pending_trace: tuple[str, list[dict]] | None = None
         self._trace_task: asyncio.Task | None = None
         self._closed = False
         self.last_seq = 0
@@ -107,11 +109,16 @@ class BrokerClient:
             retries=1,
         )
 
-    async def send(self, recipient: str, text: str) -> dict:
+    async def send(
+        self, recipient: str, text: str, *, client_message_id: str | None = None
+    ) -> dict:
+        body = {"recipient": recipient, "text": text}
+        if client_message_id:
+            body["client_message_id"] = client_message_id
         return await self._request(
             "POST",
             f"/v1/agents/{self.agent_id}/messages",
-            {"recipient": recipient, "text": text},
+            body,
         )
 
     async def post_state(self, state: str, turn: int, detail: str = "") -> None:
@@ -169,19 +176,27 @@ class BrokerClient:
                 log.warning("trace loop error: %s", exc)
 
     async def _flush_traces(self) -> None:
-        batch: list[dict] = []
-        while not self._trace_queue.empty() and len(batch) < 100:
-            batch.append(self._trace_queue.get_nowait())
-        if not batch or self._session is None:
+        if self._pending_trace is None:
+            batch: list[dict] = []
+            while not self._trace_queue.empty() and len(batch) < 100:
+                batch.append(self._trace_queue.get_nowait())
+            if not batch:
+                return
+            # Keep the batch id across retries: the host broker deduplicates it,
+            # so a lost response cannot double count tokens.
+            self._pending_trace = (uuid.uuid4().hex, batch)
+        batch_id, batch = self._pending_trace
+        if self._session is None:
             return
         try:
             await self._request(
                 "POST",
                 f"/v1/agents/{self.agent_id}/trace",
-                {"events": batch},
+                {"events": batch, "batch_id": batch_id},
                 retries=2,
                 timeout=5,
             )
+            self._pending_trace = None
         except Exception as exc:
             log.debug("could not flush %d trace events: %s", len(batch), exc)
 

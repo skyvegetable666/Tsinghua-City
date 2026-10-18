@@ -84,6 +84,7 @@ class MockLLM:
         log_path: Path | None = None,
         delay_s: float = 0.2,
         tool_command: str = "echo MOCK-TOOL-OK",
+        roster: dict[str, str] | None = None,
     ) -> None:
         self.port = port
         self.host = host
@@ -91,6 +92,9 @@ class MockLLM:
         self.log_path = Path(log_path) if log_path else None
         self.delay_s = delay_s
         self.tool_command = tool_command
+        self.roster = dict(
+            roster or {"agent-a": "agent-b", "agent-b": "agent-a"}
+        )
         self.records: list[dict] = []
         self._lock = threading.Lock()
         self._calls: dict[str, int] = {}
@@ -173,11 +177,27 @@ class MockLLM:
                     handle.write(json.dumps(record, ensure_ascii=False) + "\n")
 
     def _agent(self, body: dict) -> tuple[str, str]:
+        # The genesis prompt is the first user message. Prefer it over the whole
+        # conversation so a peer quoting "You are ..." cannot confuse the role.
+        messages = body.get("messages") or []
+        first_text = ""
+        if messages and isinstance(messages[0], dict):
+            content = messages[0].get("content")
+            if isinstance(content, str):
+                first_text = content
+            elif isinstance(content, list):
+                first_text = " ".join(
+                    str(block.get("text") or "")
+                    for block in content
+                    if isinstance(block, dict)
+                )
+        for name, peer in self.roster.items():
+            if f"You are {name}" in first_text:
+                return name, peer
         blob = json.dumps(body)
-        if "You are agent-a" in blob:
-            return "agent-a", "agent-b"
-        if "You are agent-b" in blob:
-            return "agent-b", "agent-a"
+        for name, peer in self.roster.items():
+            if f"You are {name}" in blob:
+                return name, peer
         return "agent", "peer"
 
     def _new_tool_result(self, messages: list[dict]) -> bool:

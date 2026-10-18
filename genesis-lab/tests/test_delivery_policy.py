@@ -14,13 +14,17 @@ class FakeBroker:
     def __init__(self) -> None:
         self.on_event = None
         self.sent: list[tuple[str, str]] = []
+        self.client_ids: list[str | None] = []
         self.states: list[tuple[str, int, str]] = []
         self.acks: list[dict] = []
         self.traces: list[dict] = []
         self.closed = False
 
-    async def send(self, recipient: str, text: str) -> dict:
+    async def send(
+        self, recipient: str, text: str, *, client_message_id: str | None = None
+    ) -> dict:
         self.sent.append((recipient, text))
+        self.client_ids.append(client_message_id)
         return {"ok": True, "message_id": "m000001", "peer_state": "idle", "queued_at": "now"}
 
     async def post_state(self, state: str, turn: int, detail: str = "") -> None:
@@ -172,6 +176,7 @@ async def test_agent_chat_validation(runtime):
     ok = await runtime.agent_chat("agent-b", "hi")
     assert ok["ok"] is True
     assert runtime.broker.sent == [("agent-b", "hi")]
+    assert runtime.broker.client_ids and len(runtime.broker.client_ids[0] or "") == 32
 
     wrong = await runtime.agent_chat("agent-a", "self")
     assert wrong["ok"] is False

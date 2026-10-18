@@ -315,6 +315,7 @@ def cmd_up(args: argparse.Namespace) -> int:
                     host="0.0.0.0",
                     mode="demo",
                     log_path=run.run_dir / "mock_llm_requests.jsonl",
+                    roster={spec.name: spec.peer_name for spec in settings.agents.values()},
                 )
                 try:
                     mock.start()
@@ -364,7 +365,10 @@ def cmd_up(args: argparse.Namespace) -> int:
                 print(f"[supervisor] warning: could not stop containers: {exc}", file=sys.stderr)
             if started:
                 try:
-                    await broker.finalize(broker.end_reason or "completed")
+                    final_reason = broker.end_reason or (
+                        "completed" if broker.genesis_at else "startup failed"
+                    )
+                    await broker.finalize(final_reason)
                 except Exception as exc:
                     print(f"[supervisor] warning: finalize failed: {exc}", file=sys.stderr)
                 try:
