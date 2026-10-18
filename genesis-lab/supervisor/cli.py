@@ -29,9 +29,8 @@ from .settings import (
     redacted_env,
     validate_for_real_run,
     write_current,
-    write_json,
 )
-from .store import RunStore, utc_iso
+from .store import RunStore
 
 
 # --------------------------------------------------------------------- utils
@@ -379,10 +378,12 @@ def cmd_up(args: argparse.Namespace) -> int:
                 store.close()
             if mock is not None:
                 mock.stop()
+            current_path = root / "runs" / "current.json"
             current = read_current(root)
             if current and current.get("run_id") == run.run_id:
-                current["ended_at"] = utc_iso()
-                write_json(root / "runs" / "current.json", current)
+                # Drop the pointer: keeping it would make `doctor` treat the
+                # finished run as an unreachable live broker.
+                current_path.unlink(missing_ok=True)
             print(f"[supervisor] run directory: {run.run_dir}", flush=True)
 
     try:
