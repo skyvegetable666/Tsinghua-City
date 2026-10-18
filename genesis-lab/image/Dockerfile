@@ -24,7 +24,9 @@ RUN apt-get update \
 RUN npm install -g @anthropic-ai/claude-code@2.1.296 \
     && npm cache clean --force
 
-RUN useradd --create-home --uid 1000 --shell /bin/bash agent
+# The node base image ships a `node` user at uid 1000; remove it so `agent` can take that uid.
+RUN userdel -r node 2>/dev/null; groupdel node 2>/dev/null; true \
+    && useradd --create-home --uid 1000 --shell /bin/bash agent
 
 WORKDIR /opt/genesis
 COPY runtime/requirements.txt /opt/genesis/requirements.txt
