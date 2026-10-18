@@ -43,7 +43,11 @@ async def test_mcp_stdio_tools_against_live_api(tmp_path: Path) -> None:
     base = f"http://127.0.0.1:{port}"
     db_path = tmp_path / "city.db"
     app = create_app(
-        Settings(database_url=f"sqlite:///{db_path}", admin_token="admin"),
+        Settings(
+            database_url=f"sqlite:///{db_path}",
+            admin_token="admin",
+            scheduler_enabled=False,
+        ),
         engine=None,
     )
     config = uvicorn.Config(app, host="127.0.0.1", port=port, log_level="error")

@@ -11,6 +11,7 @@ from . import service
 from .config import load_settings
 from .db import make_engine, make_session_factory, upgrade_database
 from .models import World
+from .scheduler import tick_once
 from .schemas import WorldConfig
 
 
@@ -51,6 +52,12 @@ def cmd_upgrade(_args: argparse.Namespace) -> int:
     settings = load_settings()
     upgrade_database(settings.database_url)
     print(f"database upgraded: {settings.database_url}")
+    return 0
+
+
+def cmd_tick(_args: argparse.Namespace) -> int:
+    _settings, _engine, factory = _database()
+    print(json.dumps(tick_once(factory), indent=2, ensure_ascii=False))
     return 0
 
 
@@ -120,6 +127,9 @@ def build_parser() -> argparse.ArgumentParser:
     serve.add_argument("--host", default=None)
     serve.add_argument("--port", type=int, default=None)
     serve.set_defaults(func=cmd_serve)
+
+    tick = sub.add_parser("tick", help="run one deadline/death maintenance pass")
+    tick.set_defaults(func=cmd_tick)
 
     world = sub.add_parser("create-world", help="create a world")
     world.add_argument("name")

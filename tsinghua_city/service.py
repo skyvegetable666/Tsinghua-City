@@ -950,6 +950,23 @@ def _task_view(session: Session, task: Task) -> dict[str, Any]:
     }
 
 
+def _find_task_by_key(
+    session: Session,
+    world_id: str,
+    publisher_agent_id: str | None,
+    client_task_id: str,
+) -> Task | None:
+    query = select(Task).where(
+        Task.world_id == world_id,
+        Task.client_task_id == client_task_id,
+    )
+    if publisher_agent_id is None:
+        query = query.where(Task.publisher_agent_id.is_(None))
+    else:
+        query = query.where(Task.publisher_agent_id == publisher_agent_id)
+    return session.scalars(query).one_or_none()
+
+
 def _create_task(
     session: Session,
     world: World,
@@ -961,66 +978,96 @@ def _create_task(
     acceptance_criteria: str,
     reward: int,
     deadline_seconds: int | None,
+    client_task_id: str | None = None,
 ) -> Task:
     title, description, acceptance_criteria, deadline_seconds = _validate_task_fields(
         title, description, acceptance_criteria, reward, deadline_seconds
     )
-    now = utcnow()
-    task = Task(
-        id=_id("task_"),
-        world_id=world.id,
-        publisher_agent_id=publisher.id if publisher else None,
-        assignee_agent_id=None,
-        source=source,
-        title=title,
-        description=description,
-        acceptance_criteria=acceptance_criteria,
-        reward=reward,
-        status=TASK_OPEN,
-        deadline_at=now + float(deadline_seconds) if deadline_seconds else None,
-        submission=None,
-        created_at=now,
-    )
-    session.add(task)
-    session.flush()
-
-    if publisher is None:
-        debit = _system_account(session, world.id)
-        kind = "external_task_escrow"
-        actor_id = None
-    else:
-        debit = _agent_account(session, publisher)
-        kind = "task_escrow"
-        actor_id = publisher.id
-    escrow = _escrow_account(session, world.id)
-    locked = _locked_accounts(session, debit.id, escrow.id)
-    debit, escrow = locked[debit.id], locked[escrow.id]
-    tx = _post_transfer(
-        session,
-        world,
-        debit=debit,
-        credit=escrow,
-        amount=reward,
-        kind=kind,
-        actor_agent_id=actor_id,
-        data={"task_id": task.id, "title": title, "reward": reward},
-    )
-    _emit(
-        session,
-        world.id,
-        "task.published",
-        actor_agent_id=actor_id,
-        data={
-            "task_id": task.id,
-            "title": title,
-            "reward": reward,
+    key = _request_id(client_task_id)
+    request_hash = _request_hash(
+        {
             "source": source,
-            "transaction_id": tx.id,
-        },
+            "title": title,
+            "description": description,
+            "acceptance_criteria": acceptance_criteria,
+            "reward": reward,
+            "deadline_seconds": deadline_seconds,
+        }
     )
-    session.commit()
-    session.refresh(task)
-    return task
+    publisher_id = publisher.id if publisher else None
+    if key is not None:
+        existing = _find_task_by_key(session, world.id, publisher_id, key)
+        if existing is not None:
+            if not _same_request(existing.request_hash, request_hash):
+                raise DomainError("client_task_id reused with different task fields", 409)
+            return existing
+
+    now = utcnow()
+    try:
+        task = Task(
+            id=_id("task_"),
+            world_id=world.id,
+            publisher_agent_id=publisher_id,
+            assignee_agent_id=None,
+            source=source,
+            title=title,
+            description=description,
+            acceptance_criteria=acceptance_criteria,
+            reward=reward,
+            status=TASK_OPEN,
+            client_task_id=key,
+            request_hash=request_hash,
+            deadline_at=now + float(deadline_seconds) if deadline_seconds else None,
+            submission=None,
+            created_at=now,
+        )
+        session.add(task)
+        session.flush()
+
+        if publisher is None:
+            debit = _system_account(session, world.id)
+            kind = "external_task_escrow"
+            actor_id = None
+        else:
+            debit = _agent_account(session, publisher)
+            kind = "task_escrow"
+            actor_id = publisher.id
+        escrow = _escrow_account(session, world.id)
+        locked = _locked_accounts(session, debit.id, escrow.id)
+        debit, escrow = locked[debit.id], locked[escrow.id]
+        tx = _post_transfer(
+            session,
+            world,
+            debit=debit,
+            credit=escrow,
+            amount=reward,
+            kind=kind,
+            actor_agent_id=actor_id,
+            data={"task_id": task.id, "title": title, "reward": reward},
+        )
+        _emit(
+            session,
+            world.id,
+            "task.published",
+            actor_agent_id=actor_id,
+            data={
+                "task_id": task.id,
+                "title": title,
+                "reward": reward,
+                "source": source,
+                "transaction_id": tx.id,
+            },
+        )
+        session.commit()
+        session.refresh(task)
+        return task
+    except IntegrityError as exc:
+        session.rollback()
+        if key is not None:
+            existing = _find_task_by_key(session, world.id, publisher_id, key)
+            if existing is not None and _same_request(existing.request_hash, request_hash):
+                return existing
+        raise DomainError("concurrent task publication conflict", 409) from exc
 
 
 def publish_task(
@@ -1033,6 +1080,7 @@ def publish_task(
     acceptance_criteria: str,
     reward: int,
     deadline_seconds: int | None = None,
+    client_task_id: str | None = None,
 ) -> Task:
     require_alive(session, agent, world)
     return _create_task(
@@ -1045,6 +1093,7 @@ def publish_task(
         acceptance_criteria=acceptance_criteria,
         reward=reward,
         deadline_seconds=deadline_seconds,
+        client_task_id=client_task_id,
     )
 
 
@@ -1057,6 +1106,7 @@ def publish_external_task(
     acceptance_criteria: str,
     reward: int,
     deadline_seconds: int | None = None,
+    client_task_id: str | None = None,
 ) -> Task:
     return _create_task(
         session,
@@ -1068,6 +1118,7 @@ def publish_external_task(
         acceptance_criteria=acceptance_criteria,
         reward=reward,
         deadline_seconds=deadline_seconds,
+        client_task_id=client_task_id,
     )
 
 

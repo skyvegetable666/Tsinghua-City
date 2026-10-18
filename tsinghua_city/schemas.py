@@ -127,6 +127,7 @@ class TaskCreate(BaseModel):
     acceptance_criteria: str = Field(min_length=1)
     reward: int = Field(gt=0)
     deadline_seconds: int | None = Field(default=None, gt=0)
+    client_task_id: str | None = Field(default=None, max_length=128)
 
 
 class TaskSubmit(BaseModel):

@@ -21,6 +21,8 @@ class Settings:
     host: str = "127.0.0.1"
     port: int = 8000
     log_level: str = "info"
+    scheduler_enabled: bool = True
+    scheduler_interval_seconds: float = 5.0
 
     @property
     def uses_default_admin_token(self) -> bool:
@@ -34,6 +36,11 @@ def load_settings() -> Settings:
         host=os.environ.get("CITY_HOST", "127.0.0.1"),
         port=int(os.environ.get("CITY_PORT", "8000")),
         log_level=os.environ.get("CITY_LOG_LEVEL", "info"),
+        scheduler_enabled=os.environ.get("CITY_SCHEDULER_ENABLED", "1").lower()
+        not in {"0", "false", "no", "off"},
+        scheduler_interval_seconds=float(
+            os.environ.get("CITY_SCHEDULER_INTERVAL_SECONDS", "5")
+        ),
     )
 
 

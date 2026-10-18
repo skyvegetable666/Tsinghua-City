@@ -144,6 +144,12 @@ class Task(Base):
     __table_args__ = (
         Index("ix_tasks_world_status", "world_id", "status"),
         Index("ix_tasks_assignee", "assignee_agent_id"),
+        UniqueConstraint(
+            "world_id",
+            "publisher_agent_id",
+            "client_task_id",
+            name="uq_tasks_idempotency",
+        ),
     )
 
     id: Mapped[str] = mapped_column(String(32), primary_key=True)
@@ -160,6 +166,8 @@ class Task(Base):
     acceptance_criteria: Mapped[str] = mapped_column(Text, nullable=False)
     reward: Mapped[int] = mapped_column(Integer, nullable=False)
     status: Mapped[str] = mapped_column(String(16), nullable=False)
+    client_task_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    request_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
     deadline_at: Mapped[float | None] = mapped_column(Float, nullable=True)
     submission: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[float] = mapped_column(Float, nullable=False)

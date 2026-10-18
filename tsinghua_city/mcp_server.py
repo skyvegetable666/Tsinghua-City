@@ -191,6 +191,7 @@ def publish_task(
     acceptance_criteria: str,
     reward: int,
     deadline_seconds: int | None = None,
+    client_task_id: str | None = None,
 ) -> dict[str, Any]:
     """Publish a task and escrow its reward.
 
@@ -209,6 +210,8 @@ def publish_task(
     }
     if deadline_seconds is not None:
         body["deadline_seconds"] = deadline_seconds
+    if client_task_id:
+        body["client_task_id"] = client_task_id
     return _request("POST", "/v1/me/tasks", body)
 
 

@@ -46,7 +46,11 @@ def engine():
 
 @pytest.fixture
 def settings() -> Settings:
-    return Settings(database_url="sqlite://", admin_token=ADMIN)
+    return Settings(
+        database_url="sqlite://",
+        admin_token=ADMIN,
+        scheduler_enabled=False,
+    )
 
 
 @pytest.fixture

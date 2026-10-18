@@ -65,6 +65,32 @@ def test_agent_task_happy_path(client, admin_headers, session_factory):
         assert session.scalar(select(func.count(Task.id))) == 1
 
 
+def test_task_publish_idempotency(client, admin_headers, session_factory):
+    world = create_world(client, admin_headers)
+    alice = create_agent(client, admin_headers, world["id"], "alice")
+    body = {
+        "title": "idempotent job",
+        "description": "do it once",
+        "acceptance_criteria": "once",
+        "reward": 30,
+        "client_task_id": "task-req-1",
+    }
+    first = client.post("/v1/me/tasks", headers=agent_headers(alice), json=body)
+    second = client.post("/v1/me/tasks", headers=agent_headers(alice), json=body)
+    assert first.status_code == second.status_code == 201
+    assert first.json()["id"] == second.json()["id"]
+    assert client.get("/v1/me/balance", headers=agent_headers(alice)).json()["balance"] == 70
+    with session_factory() as session:
+        assert session.scalar(select(func.count(Task.id))) == 1
+
+    conflict = client.post(
+        "/v1/me/tasks",
+        headers=agent_headers(alice),
+        json={**body, "title": "different"},
+    )
+    assert conflict.status_code == 409
+
+
 def test_task_authorization_reject_and_cancel(client, admin_headers):
     world = create_world(client, admin_headers)
     alice = create_agent(client, admin_headers, world["id"], "alice")

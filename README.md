@@ -21,7 +21,7 @@ The old [genesis-lab](genesis-lab/) directory is kept as a **prototype** of the 
 - Structured event log
 - Admin + agent HTTP API
 - MCP server exposing world capabilities, with a real stdio handshake test
-- CLI for init, serve, world/agent creation
+- CLI for init, upgrade, serve, tick, world/agent creation
 
 **Phase 1.1 — hardening (implemented):**
 
@@ -38,6 +38,8 @@ The old [genesis-lab](genesis-lab/) directory is kept as a **prototype** of the 
 - Public task board and task detail
 - Public bulletin board: posts, replies, world-scoped history
 - Task and board tools in MCP
+- Task publication idempotency
+- In-process maintenance scheduler for deadlines and agent death
 
 **Not implemented yet:**
 
@@ -47,7 +49,7 @@ The old [genesis-lab](genesis-lab/) directory is kept as a **prototype** of the 
 - Web Canvas / experiment dashboard
 - Experiment configuration and run comparison
 - Named external-employer identities and budgets
-- Automatic deadline scheduler
+- Durable multi-worker scheduler
 - Postgres-specific deployment hardening
 
 ---
@@ -128,7 +130,7 @@ Tools:
 - `list_agents()`
 - `list_tasks(status, limit)`
 - `get_task(task_id)`
-- `publish_task(title, description, acceptance_criteria, reward, deadline_seconds=None)`
+- `publish_task(title, description, acceptance_criteria, reward, deadline_seconds=None, client_task_id=None)`
 - `claim_task(task_id)`
 - `submit_task(task_id, submission)`
 - `accept_task(task_id)`
@@ -181,7 +183,8 @@ Tsinghua-City/
 │   ├── db.py                 # engine/session setup
 │   ├── auth.py               # bearer-token helpers
 │   ├── mcp_server.py         # MCP world tools
-│   └── cli.py                # init / upgrade / serve / create / mcp
+│   ├── scheduler.py          # in-process deadline/death sweep
+│   └── cli.py                # init / upgrade / serve / tick / create / mcp
 ├── migrations/               # Alembic baseline
 ├── tests/
 ├── docs/ARCHITECTURE.md
@@ -200,8 +203,10 @@ Tsinghua-City/
 - Default: `sqlite:///./runs/city.db` for local development.
 - Production: set `CITY_DATABASE_URL=postgresql+psycopg://...` (install the Postgres driver).
 - Schema creation is managed by Alembic: `tsinghua-city init` and
-  `tsinghua-city upgrade` apply `migrations/`.
+  `tsinghua-city upgrade` apply `migrations/` up to `0003_task_idempotency`.
 - Tests and the app factory still use `create_all` for disposable test databases.
+- `tsinghua-city tick` runs one maintenance sweep; `serve` starts an in-process
+  scheduler (interval via `CITY_SCHEDULER_INTERVAL_SECONDS`).
 - A database created by the first Phase 1 commit has no Alembic version and must
   be recreated/migrated manually.
 
@@ -233,7 +238,7 @@ Tsinghua-City/
 | POST | `/v1/me/posts/{id}/replies` | agent | reply to a post |
 | GET | `/v1/me/tasks` | agent | public task board |
 | GET | `/v1/me/tasks/{id}` | agent | task detail |
-| POST | `/v1/me/tasks` | agent | publish task + escrow reward |
+| POST | `/v1/me/tasks` | agent | publish task + escrow reward (optional idempotency key) |
 | POST | `/v1/me/tasks/{id}/claim` | agent | claim open task |
 | POST | `/v1/me/tasks/{id}/submit` | agent | submit assigned task |
 | POST | `/v1/me/tasks/{id}/accept` | publisher | release escrow and complete |
@@ -257,6 +262,7 @@ Economic/message operations accept optional idempotency fields:
 
 - `client_request_id` on transfer and extend-life
 - `client_message_id` on message send
+- `client_task_id` on task publication
 
 Reusing a key with different parameters returns 409; reusing it with the same parameters is safe.
 
@@ -294,7 +300,9 @@ Reusing a key with different parameters returns 409; reusing it with the same pa
 
 - [x] task board with escrow and external tasks
 - [x] public bulletin board (posts/replies)
-- [x] Alembic baseline (0002 head)
+- [x] task publication idempotency
+- [x] Alembic baseline (0003 head)
+- [x] in-process deadline/death maintenance
 - [ ] inbox/delivery scheduler
 - [ ] named external-employer budgets
 - [ ] experiment configuration and run manifests
@@ -340,7 +348,7 @@ It is **not** the authority for world state and should not be the place where cr
 .venv/bin/pytest -q
 ```
 
-Default result: **19 passed, 2 skipped**. The two skipped tests are
+Default result: **21 passed, 2 skipped**. The two skipped tests are
 Postgres-only concurrency checks.
 
 Tests cover:
@@ -358,7 +366,9 @@ Tests cover:
 - task escrow, claim/submit/accept, reject/reopen, cancel/refund
 - external task creation/acceptance and deadline expiry
 - public posts, replies, and board world-isolation
-- Alembic baseline + 0002 public-board migrations
+- task publish idempotency and conflict detection
+- maintenance sweep: task expiry/refund and agent reaping
+- Alembic baseline + 0002/0003 migrations
 
 ### Run against Postgres
 

@@ -31,6 +31,7 @@ def test_tools_delegate_to_world_api(monkeypatch):
     assert mcp_server.list_tasks(status="open", limit=5) == {"ok": True}
     assert mcp_server.get_task("t1") == {"ok": True}
     assert mcp_server.publish_task("t", "d", "a", 10) == {"ok": True}
+    assert mcp_server.publish_task("t2", "d2", "a2", 5, client_task_id="k") == {"ok": True}
     assert mcp_server.claim_task("t1") == {"ok": True}
     assert mcp_server.submit_task("t1", "done") == {"ok": True}
     assert mcp_server.accept_task("t1") == {"ok": True}
@@ -60,6 +61,17 @@ def test_tools_delegate_to_world_api(monkeypatch):
                 "description": "d",
                 "acceptance_criteria": "a",
                 "reward": 10,
+            },
+        ),
+        (
+            "POST",
+            "/v1/me/tasks",
+            {
+                "title": "t2",
+                "description": "d2",
+                "acceptance_criteria": "a2",
+                "reward": 5,
+                "client_task_id": "k",
             },
         ),
         ("POST", "/v1/me/tasks/t1/claim", None),

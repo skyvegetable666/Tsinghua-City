@@ -21,6 +21,7 @@ from .auth import admin_matches, extract_bearer
 from .config import Settings, load_settings
 from .db import init_db, make_engine, make_session_factory
 from .models import Agent, World
+from .scheduler import Scheduler
 from .schemas import (
     AgentCreate,
     AgentCreated,
@@ -66,15 +67,28 @@ def create_app(
     settings: Settings | None = None,
     *,
     engine=None,
+    scheduler: bool | None = None,
 ) -> FastAPI:
     settings = settings or load_settings()
     engine = engine or make_engine(settings.database_url)
     session_factory = make_session_factory(engine)
+    run_scheduler = settings.scheduler_enabled if scheduler is None else scheduler
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         init_db(engine)
-        yield
+        maintenance = (
+            Scheduler(session_factory, settings.scheduler_interval_seconds)
+            if run_scheduler
+            else None
+        )
+        if maintenance is not None:
+            maintenance.start()
+        try:
+            yield
+        finally:
+            if maintenance is not None:
+                maintenance.stop()
 
     app = FastAPI(
         title="Tsinghua City",
@@ -235,6 +249,7 @@ def create_app(
             acceptance_criteria=body.acceptance_criteria,
             reward=body.reward,
             deadline_seconds=body.deadline_seconds,
+            client_task_id=body.client_task_id,
         )
         return service.task_view(session, task)
 
@@ -474,6 +489,7 @@ def create_app(
             acceptance_criteria=body.acceptance_criteria,
             reward=body.reward,
             deadline_seconds=body.deadline_seconds,
+            client_task_id=body.client_task_id,
         )
         return service.task_view(auth.session, task)
 
