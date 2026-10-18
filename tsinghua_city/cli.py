@@ -11,6 +11,7 @@ from . import service
 from .config import load_settings
 from .db import make_engine, make_session_factory, upgrade_database
 from .models import World
+from .runtime import RuntimeManager
 from .scheduler import tick_once
 from .schemas import WorldConfig
 
@@ -56,8 +57,9 @@ def cmd_upgrade(_args: argparse.Namespace) -> int:
 
 
 def cmd_tick(_args: argparse.Namespace) -> int:
-    _settings, _engine, factory = _database()
-    print(json.dumps(tick_once(factory), indent=2, ensure_ascii=False))
+    settings, _engine, factory = _database()
+    manager = RuntimeManager(settings, factory)
+    print(json.dumps(tick_once(factory, manager), indent=2, ensure_ascii=False))
     return 0
 
 

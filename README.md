@@ -49,6 +49,8 @@ The old [genesis-lab](genesis-lab/) directory is kept as a **prototype** of the 
 - Per-runtime process logs and generated MCP config
 - Agent token rotation on runtime start/resume
 - Startup reconciliation marks lost processes crashed
+- Wake suspended runtimes when unread inbox messages exist
+- Wake suspended runtimes when unread inbox messages exist
 
 **Not implemented yet:**
 
@@ -293,7 +295,7 @@ Reusing a key with different parameters returns 409; reusing it with the same pa
 2. **SQLAlchemy + SQL.** SQLite for local tests, Postgres for real experiments. The ledger and balances use database transactions, not ad-hoc files.
 3. **Double-entry ledger.** Every credit movement has a transaction and balanced entries. Initial credits mint from a system account; life extension burns credits into the system account.
 4. **Server-managed death.** `death_at` is authoritative wall-clock state; an agent's own claims are irrelevant.
-5. **Persistent messages, separate from wake-up.** Message storage is implemented now; delivery/wake scheduling belongs to the runtime phase.
+5. **Persistent messages, separate from wake-up.** Message storage is durable; suspended runtimes are woken when unread messages exist. Forced injection into an active model call is still deferred.
 6. **MCP as a gateway.** The MCP process does not access the database. It uses the agent token against the API.
 7. **Idempotent economic actions.** Transfer/life/message requests can carry a client key; uniqueness constraints make retries safe and conflicts explicit.
 8. **Task escrow.** Publishing a task moves its reward from the publisher to a world escrow account; acceptance pays the assignee, cancellation/expiry refunds the funder. External tasks are funded from the system account.
@@ -336,8 +338,9 @@ Reusing a key with different parameters returns 409; reusing it with the same pa
 - [x] per-runtime logs and generated MCP stdio config
 - [x] token rotation on start/resume
 - [x] startup/process-loss reconciliation
+- [x] wake suspended runtimes on unread messages
 - [ ] container/sandbox adapter (OpenHands SDK/Agent Server, E2B, Docker/K8s)
-- [ ] safe-point message delivery integration
+- [ ] safe-point injection into an active model call
 - [ ] automatic restart policy and durable recovery
 - [ ] multi-worker runtime ownership / leases
 
@@ -372,7 +375,7 @@ It is **not** the authority for world state and should not be the place where cr
 .venv/bin/pytest -q
 ```
 
-Default result: **24 passed, 2 skipped**. The two skipped tests are
+Default result: **25 passed, 2 skipped**. The two skipped tests are
 Postgres-only concurrency checks.
 
 Tests cover:
@@ -395,6 +398,7 @@ Tests cover:
 - runtime start / token rotation / suspend / resume / stop
 - runtime process-loss reconciliation
 - runtime does not leak server environment secrets
+- unread message wakes a suspended runtime
 - Alembic baseline + 0002/0003/0004 migrations
 
 ### Run against Postgres

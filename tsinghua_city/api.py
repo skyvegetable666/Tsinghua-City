@@ -82,7 +82,11 @@ def create_app(
         init_db(engine)
         runtime_manager.reconcile()
         maintenance = (
-            Scheduler(session_factory, settings.scheduler_interval_seconds)
+            Scheduler(
+                session_factory,
+                settings.scheduler_interval_seconds,
+                runtime_manager=runtime_manager,
+            )
             if run_scheduler
             else None
         )

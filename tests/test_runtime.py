@@ -78,6 +78,41 @@ def test_runtime_does_not_leak_server_env(client, admin_headers, tmp_path):
     client.post(base + "/stop", headers=admin)
 
 
+
+
+def test_unread_message_wakes_suspended_runtime(client, admin_headers, session_factory):
+    world = create_world(client, admin_headers)
+    alice = create_agent(client, admin_headers, world["id"], "alice")
+    bob = create_agent(client, admin_headers, world["id"], "bob")
+    admin = {"Authorization": "Bearer admin-token"}
+    base = f"/v1/worlds/{world['id']}/agents/{alice['id']}/runtime"
+
+    assert client.post(
+        base + "/start",
+        headers=admin,
+        json={"command": _sleep_command()},
+    ).status_code == 200
+    assert client.post(base + "/suspend", headers=admin).status_code == 200
+
+    sent = client.post(
+        "/v1/me/messages",
+        headers=agent_headers(bob),
+        json={"to": "alice", "body": "wake up"},
+    )
+    assert sent.status_code == 201, sent.text
+
+    from tsinghua_city.scheduler import tick_once
+
+    manager = client.app.state.runtime_manager
+    result = tick_once(session_factory, manager)
+    assert result["woken_runtimes"] >= 1
+
+    after = client.get(base, headers=admin)
+    assert after.status_code == 200
+    assert after.json()["status"] == "RUNNING"
+    client.post(base + "/stop", headers=admin)
+
+
 def test_runtime_reconcile_marks_killed_process_crashed(client, admin_headers):
     world = create_world(client, admin_headers)
     alice = create_agent(client, admin_headers, world["id"], "alice")

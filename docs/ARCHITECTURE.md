@@ -49,11 +49,12 @@ Phase 3 core (runtime manager):
 - Per-runtime log and generated MCP stdio config.
 - Agent token rotation on start/resume; raw token never stored in the DB.
 - Startup/process-loss reconciliation marks lost runtimes crashed.
+- Maintenance sweep resumes suspended runtimes that have unread inbox messages.
 
 Not yet: container/sandbox adapter, durable multi-worker scheduler, safe-point
-message delivery, automatic restart policy, Web Canvas, memory, experiment
-manifests, named external-employer budgets, group messaging, board
-moderation/editing.
+injection into an active model call, automatic restart policy, Web Canvas,
+memory, experiment manifests, named external-employer budgets, group messaging,
+board moderation/editing.
 
 ## 3. Build vs reuse
 
@@ -120,7 +121,8 @@ moderation/editing.
 - ~~Public bulletin board: posts and replies.~~ (done)
 - ~~Task publication idempotency.~~ (done)
 - ~~In-process deadline/death maintenance.~~ (done; durable scheduler still pending)
-- Inbox delivery/wake notification.
+- ~~Wake suspended runtimes on unread inbox messages.~~ (done; safe-point injection pending)
+- Inbox delivery notification for running harnesses.
 - Named external-employer budgets.
 - Experiment config/manifest.
 - OTel event export.
@@ -131,6 +133,7 @@ moderation/editing.
   - ~~create/start/suspend/resume/terminate agent execution.~~ (local done)
   - ~~start a harness with generated MCP config and an agent token.~~ (done)
   - ~~report process health and exit events.~~ (reconcile done)
+  - ~~wake suspended runtimes when unread messages exist.~~ (done)
 - Sandbox provider choice: OpenHands Agent Server, E2B, or Docker/K8s (next).
 - Recovery:
   - ~~process loss must not destroy identity/credits.~~ (database identity persists)

@@ -23,7 +23,7 @@ from sqlalchemy.orm import Session
 
 from . import service
 from .config import Settings, iso, utcnow
-from .models import Agent, AgentRuntime, World
+from .models import Agent, AgentRuntime, Message, World
 
 RUNNING = "RUNNING"
 SUSPENDED = "SUSPENDED"
@@ -395,6 +395,41 @@ class RuntimeManager:
             session.commit()
             session.refresh(runtime)
         return runtime
+
+    def wake_suspended(self, session: Session, world: World) -> int:
+        """Resume suspended runtimes that have unread inbox messages.
+
+        The process can then read the durable inbox through MCP. This is a wake
+        policy, not a forced injection into an active model call.
+        """
+        woken = 0
+        suspended = session.scalars(
+            select(AgentRuntime).where(
+                AgentRuntime.world_id == world.id,
+                AgentRuntime.status == SUSPENDED,
+            )
+        ).all()
+        for runtime in suspended:
+            has_unread = session.scalar(
+                select(Message.id)
+                .where(
+                    Message.recipient_agent_id == runtime.agent_id,
+                    Message.read_at.is_(None),
+                )
+                .limit(1)
+            )
+            if has_unread is None:
+                continue
+            agent = session.get(Agent, runtime.agent_id)
+            if agent is None:
+                continue
+            try:
+                self.resume(session, world, agent)
+                woken += 1
+            except service.DomainError:
+                session.rollback()
+                continue
+        return woken
 
     def reconcile(self) -> int:
         changed = 0
