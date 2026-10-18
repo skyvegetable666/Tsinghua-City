@@ -303,7 +303,8 @@ Reusing a key with different parameters returns 409; reusing it with the same pa
 10. **Public board is append-only.** Posts/replies are world-scoped and never silently edited or deleted; moderation/editing is deferred.
 11. **Logical identity is separate from process.** A runtime record points at a process; starting a runtime rotates the agent credential and injects it only into the process/MCP config. Stopping the process does not delete the agent.
 12. **The local adapter is not a sandbox.** It is for harness development/tests; a container/OpenHands/E2B adapter is still required for isolation.
-13. **No social orchestration framework.** The platform will not prescribe collaboration patterns using CrewAI/AutoGen/LangGraph-style workflows; those are experiment baselines at most.
+13. **Locked reads refresh identity-map state.** Account rows are re-read with `populate_existing` after `SELECT ... FOR UPDATE`; otherwise SQLAlchemy can keep a stale balance and defeat double-spend checks.
+14. **No social orchestration framework.** The platform will not prescribe collaboration patterns using CrewAI/AutoGen/LangGraph-style workflows; those are experiment baselines at most.
 
 ---
 
@@ -375,8 +376,17 @@ It is **not** the authority for world state and should not be the place where cr
 .venv/bin/pytest -q
 ```
 
-Default result: **25 passed, 2 skipped**. The two skipped tests are
+Default result: **26 passed, 2 skipped**. The two skipped tests are
 Postgres-only concurrency checks.
+
+On Windows machines with a system/WinINET proxy (for example Clash), set:
+
+```powershell
+$env:NO_PROXY = "127.0.0.1,localhost"
+```
+
+The MCP protocol test and MCP client bypass proxies for the loopback control
+plane, but an external harness may still need `NO_PROXY`.
 
 Tests cover:
 
@@ -399,6 +409,7 @@ Tests cover:
 - runtime process-loss reconciliation
 - runtime does not leak server environment secrets
 - unread message wakes a suspended runtime
+- locked accounts refresh stale identity-map balances
 - Alembic baseline + 0002/0003/0004 migrations
 
 ### Run against Postgres

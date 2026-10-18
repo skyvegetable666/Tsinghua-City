@@ -17,6 +17,10 @@ from mcp.server.fastmcp import FastMCP
 API_URL = os.environ.get("CITY_API_URL", "http://127.0.0.1:8000").rstrip("/")
 AGENT_TOKEN = os.environ.get("CITY_AGENT_TOKEN", "")
 
+# The MCP sidecar talks to the control plane, usually over loopback. Do not
+# inherit Windows/WinINET or environment proxies for that internal hop.
+_OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+
 mcp = FastMCP("tsinghua-city")
 
 
@@ -35,7 +39,7 @@ def _request(method: str, path: str, body: dict[str, Any] | None = None) -> Any:
         method=method,
     )
     try:
-        with urllib.request.urlopen(request, timeout=15) as response:
+        with _OPENER.open(request, timeout=15) as response:
             return json.loads(response.read().decode("utf-8") or "{}")
     except urllib.error.HTTPError as exc:
         raw = exc.read().decode("utf-8", "replace")

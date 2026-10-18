@@ -183,8 +183,16 @@ def _agent_account(session: Session, agent: Agent) -> Account:
 
 
 def _locked_accounts(session: Session, *account_ids: str) -> dict[str, Account]:
+    # populate_existing is essential: an earlier unlocked read (for example via
+    # _agent_account) leaves the Account in the identity map. SELECT FOR UPDATE
+    # blocks correctly, but without populate_existing SQLAlchemy would keep the
+    # stale balance after the lock is acquired, defeating the balance check.
     rows = session.scalars(
-        select(Account).where(Account.id.in_(account_ids)).with_for_update()
+        select(Account)
+        .where(Account.id.in_(account_ids))
+        .order_by(Account.id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
     ).all()
     result = {row.id: row for row in rows}
     if len(result) != len(set(account_ids)):

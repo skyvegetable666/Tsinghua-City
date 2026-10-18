@@ -27,7 +27,7 @@ def _free_port() -> int:
 
 def _wait_health(base: str, timeout: float = 10.0) -> None:
     deadline = time.monotonic() + timeout
-    with httpx.Client(timeout=1) as client:
+    with httpx.Client(timeout=1, trust_env=False) as client:
         while time.monotonic() < deadline:
             try:
                 if client.get(base + "/health").status_code == 200:
@@ -57,7 +57,7 @@ async def test_mcp_stdio_tools_against_live_api(tmp_path: Path) -> None:
     thread.start()
     try:
         _wait_health(base)
-        with httpx.Client(base_url=base, timeout=5) as client:
+        with httpx.Client(base_url=base, timeout=5, trust_env=False) as client:
             admin = {"Authorization": "Bearer admin"}
             world = client.post("/v1/worlds", headers=admin, json={"name": "mcp"}).json()
             alice = client.post(
