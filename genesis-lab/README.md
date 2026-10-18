@@ -14,6 +14,21 @@
 
 **没有 API key 也能先跑通全链路**：`python -m supervisor up --mock` 会用脚本化的假模型替代 DeepSeek。
 
+> 完整功能清单和硬限制见 **[FEATURES.md](FEATURES.md)**；自定义 agent / N-agent 扩展见 **[EXTENDING.md](EXTENDING.md)**。
+
+## 0. 能力速览
+
+| 能做 | 当前不能做 |
+| --- | --- |
+| 两个隔离容器中的 Claude Code agent | 3 个及以上 agent（当前固定二元世界） |
+| 创世屏障、同时启动、可编辑 world/mission/genesis | 生成中途真正注入（只能等安全点） |
+| `agent_chat(recipient, message)` + 不打断投递 | 自动重启 / 断点续跑 |
+| 消息排序、幂等、投递回执、离线/上线通知 | GUI / 结构化消息 / 限流 / 成本上限 |
+| JSONL 事件、transcript、metrics、CLI 控制 | 每消息发送方可见回执 / 多机高可用 |
+| Linux / Windows 宿主机、无 key mock、真实 CLI 集成测试 | 任意语言自定义 agent 目前只能**替换**其中一个 agent |
+
+当前不是 N-agent 框架。要把自定义 agent 接进来，最稳的接口是 broker 的 HTTP/SSE 协议；要新增第三个 agent，需要改控制面和 compose 编排，清单在 [EXTENDING.md](EXTENDING.md)。
+
 ---
 
 ## 1. 它到底怎么跑
@@ -122,8 +137,11 @@ genesis-lab/
 ├── image/Dockerfile         #   node + python + claude-code 固定版本
 ├── docker-compose.yml       #   两个容器、两个隔离网络
 ├── tests/                   #   单测 + 真实 Claude CLI 集成测试
+├── scripts/check_hygiene.py #   提交前检查 key / runs / 凭据
 ├── .env.example
 ├── README.md
+├── FEATURES.md              #   完整功能清单与限制
+├── EXTENDING.md             #   自定义 agent / N-agent 扩展
 └── DESIGN.md                #   更细的协议、失败语义、备选方案
 ```
 
@@ -424,9 +442,11 @@ python scripts/check_hygiene.py
 
 ---
 
-## 12. 设计文档
+## 12. 文档
 
-协议细节、失败语义、为什么不用 interrupt / 共享卷 / 直接容器互联，见 [DESIGN.md](DESIGN.md)。
+- [FEATURES.md](FEATURES.md)：完整功能清单、硬限制、已知不支持项
+- [EXTENDING.md](EXTENDING.md)：broker HTTP/SSE 协议、自定义 agent、N-agent 改造清单
+- [DESIGN.md](DESIGN.md)：协议细节、失败语义、为什么不用 interrupt / 共享卷 / 直接容器互联
 
 ---
 
