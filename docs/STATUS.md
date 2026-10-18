@@ -26,7 +26,7 @@ Tsinghua City now has an authoritative world-state service, MCP capabilities, a 
 | Maintenance scheduler | deadlines, death, wake, crash detection, restart |
 | Local runtime manager | start/stop/suspend/resume/terminate/reconcile |
 | Runtime recovery | process-loss mark, on-failure restart, terminate crashed |
-| Token rotation | runtime start/resume; old tokens invalidated |
+| Token rotation | runtime start/resume/auto-restart; old tokens invalidated |
 | Runtime MCP config | generated per process; removed on stop |
 | Windows proxy handling | loopback clients bypass WinINET |
 | Postgres concurrency | FOR UPDATE + populate_existing fix |
@@ -48,9 +48,9 @@ Windows tester, at commit `17af044`:
 - runtime manual 9-step lifecycle: pass
 - new migration and board/task tests: pass
 
-**Delta not yet tester-verified:** `260344e` (on-failure restart) and `9e4c066` (terminate crashed runtime).
+**Delta now tester-verified at `9e4c066`:** Windows 29/2; Postgres 31/31.
 
-Current Postgres expectation is `31 passed`.
+A token-rotation regression assertion was added after the report: auto-restart writes a new MCP config token and invalidates the previous one. It passes locally.
 
 ## Known gaps
 

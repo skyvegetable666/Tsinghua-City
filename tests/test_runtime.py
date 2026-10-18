@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import json
 import sys
 import time
+from pathlib import Path
 
 import psutil
 from conftest import agent_headers, create_agent, create_world
@@ -129,6 +131,8 @@ def test_runtime_auto_restart_on_failure(client, admin_headers, session_factory)
         },
     ).json()
     assert started["restart_policy"] == "on_failure"
+    first_config = json.loads(Path(started["mcp_config_path"]).read_text())
+    first_token = first_config["mcpServers"]["tsinghua-city"]["env"]["CITY_AGENT_TOKEN"]
     psutil.Process(started["pid"]).kill()
     for _ in range(20):
         if not psutil.pid_exists(started["pid"]):
@@ -161,6 +165,16 @@ def test_runtime_auto_restart_on_failure(client, admin_headers, session_factory)
     assert after.status_code == 200
     assert after.json()["status"] == "RUNNING"
     assert after.json()["restart_count"] == 1
+
+    second_config = json.loads(Path(after.json()["mcp_config_path"]).read_text())
+    second_token = second_config["mcpServers"]["tsinghua-city"]["env"]["CITY_AGENT_TOKEN"]
+    assert second_token != first_token
+    assert client.get(
+        "/v1/me", headers={"Authorization": f"Bearer {first_token}"}
+    ).status_code == 401
+    assert client.get(
+        "/v1/me", headers={"Authorization": f"Bearer {second_token}"}
+    ).status_code == 200
     client.post(base + "/stop", headers=admin)
 
 

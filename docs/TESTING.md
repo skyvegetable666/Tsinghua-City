@@ -91,7 +91,8 @@ Check:
 - send a message to the agent, wait for scheduler or run `tsinghua-city tick`, runtime wakes
 - stop removes the process and MCP config; log remains
 - kill the process, then `GET /runtime` or reconcile marks `CRASHED`
-- with `on_failure`, wait for `next_restart_at` / tick and verify a new pid and `restart_count = 1`
+- with `on_failure`, wait for `next_restart_at` / tick and verify a new pid, `restart_count = 1`, and a changed MCP config token
+- the old token from before restart must return 401; the new MCP config token must work
 - exceed `max_restarts`: runtime stays `CRASHED`
 - `terminate` a crashed runtime: status becomes `STOPPED` and no restart occurs
 

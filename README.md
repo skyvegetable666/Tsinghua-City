@@ -42,7 +42,7 @@ This repository is currently an **alpha / single-node lab checkpoint**, not a pr
 - admin start/stop/suspend/resume/terminate
 - local subprocess adapter
 - runtime logs and generated MCP stdio config
-- token rotation on start/resume
+- token rotation on start/resume/auto-restart
 - process-loss reconciliation
 - wake suspended runtimes when unread messages exist
 - optional on-failure restart with backoff and max attempts
