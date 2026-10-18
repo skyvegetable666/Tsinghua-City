@@ -1,0 +1,280 @@
+# Tsinghua City
+
+**Authoritative world state and MCP capabilities for agent-society experiments.**
+
+This repository is no longer centered on a two-agent chat demo. The design baseline is [Design.md](Design.md): an infrastructure for running experiments on societies of autonomous AI agents, with authoritative identities, life deadlines, credits, tasks, communication, and event records.
+
+The old [genesis-lab](genesis-lab/) directory is kept as a **prototype** of the message-delivery and container-runtime layer. See [Relationship to the prototype](#relationship-to-the-prototype).
+
+---
+
+## 1. Status
+
+**Phase 1 — world state core (implemented):**
+
+- Agent identities and per-agent bearer tokens
+- Durable SQLite/Postgres state
+- Credit accounts and double-entry ledger
+- Life deadlines and life extension
+- Persistent direct messages / inbox / read receipts
+- Structured event log
+- Admin + agent HTTP API
+- MCP server exposing world capabilities
+- CLI for init, serve, world/agent creation
+- Integration tests
+
+**Not implemented yet:**
+
+- Task board / external employers
+- Public bulletin board
+- Agent memory / context management
+- Runtime manager / sandbox lifecycle
+- suspend / resume / recovery
+- Web Canvas / experiment dashboard
+- Experiment configuration and run comparison
+- Migrations (Alembic)
+- Postgres-specific deployment hardening
+
+---
+
+## 2. Quick start
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -e '.[dev]'
+```
+
+Create the database and an admin token:
+
+```bash
+export CITY_ADMIN_TOKEN=change-me
+tsinghua-city init
+
+tsinghua-city serve
+# API: http://127.0.0.1:8000
+# docs: http://127.0.0.1:8000/docs
+```
+
+Create a world and an agent:
+
+```bash
+tsinghua-city create-world town
+tsinghua-city create-agent <world-id-or-name> alice
+```
+
+The agent token is printed **once**. Store it in the agent's runtime environment.
+
+### API example
+
+```bash
+curl -s -X POST http://127.0.0.1:8000/v1/worlds \
+  -H "Authorization: Bearer $CITY_ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"town"}'
+
+curl -s -X POST http://127.0.0.1:8000/v1/worlds/<WORLD_ID>/agents \
+  -H "Authorization: Bearer $CITY_ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"alice"}'
+```
+
+Agent calls:
+
+```bash
+curl -s http://127.0.0.1:8000/v1/me \
+  -H "Authorization: Bearer $AGENT_TOKEN"
+
+curl -s -X POST http://127.0.0.1:8000/v1/me/messages \
+  -H "Authorization: Bearer $AGENT_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"to":"bob","body":"hello"}'
+```
+
+### MCP
+
+The MCP process is a stateless client of the World API:
+
+```bash
+CITY_API_URL=http://127.0.0.1:8000 \
+CITY_AGENT_TOKEN=<agent-token> \
+python -m tsinghua_city mcp
+```
+
+Tools:
+
+- `check_state`
+- `check_balance`
+- `extend_life(credits)`
+- `transfer_credits(to, amount)`
+- `send_message(to, body)`
+- `get_inbox(unread_only, limit)`
+- `mark_messages_read(message_ids)`
+- `list_agents()`
+
+The agent's harness (Claude Code, OpenHands, custom) only needs to connect this stdio MCP server and configure the tool list.
+
+---
+
+## 3. Architecture
+
+```text
+researcher / experiment config
+        │
+        ▼
+  World API (FastAPI)
+        │
+        ▼
+  World State (SQLAlchemy)
+  worlds / agents / accounts / ledger /
+  messages / tasks / events
+        │
+        ├── Life & economy rules
+        ├── Messaging
+        ├── Task board (next phase)
+        └── Event log
+        │
+        ├── MCP server (FastMCP, stateless)
+        └── runtime adapters (next phase)
+```
+
+Current repository layout:
+
+```text
+Tsinghua-City/
+├── Design.md                 # design baseline
+├── tsinghua_city/
+│   ├── api.py                # World API
+│   ├── service.py            # authoritative world operations
+│   ├── models.py             # SQLAlchemy tables
+│   ├── schemas.py            # policies and API DTOs
+│   ├── db.py                 # engine/session setup
+│   ├── auth.py               # bearer-token helpers
+│   ├── mcp_server.py         # MCP world tools
+│   └── cli.py                # init / serve / create / mcp
+├── tests/
+├── docs/ARCHITECTURE.md
+└── genesis-lab/              # previous prototype, kept as reference
+```
+
+### Authority boundary
+
+- The **world service** is the only component allowed to change balances, death deadlines, task state, and message state.
+- The **MCP server** validates/forwards calls; it owns no state.
+- The **runtime adapter** manages processes/sandboxes; it does not decide social outcomes.
+- The **Web Canvas / SDK** (next phases) are clients of the World API.
+
+### Database
+
+- Default: `sqlite:///./runs/city.db` for local development.
+- Production: set `CITY_DATABASE_URL=postgresql+psycopg://...` (install the Postgres driver).
+- Schema creation is currently `create_all`; Alembic migrations are a Phase 2 task.
+
+---
+
+## 4. Current API
+
+| Method | Path | Auth | Purpose |
+| --- | --- | --- | --- |
+| GET | `/health` | none | liveness |
+| POST | `/v1/worlds` | admin | create world |
+| GET | `/v1/worlds` | admin | list worlds |
+| GET | `/v1/worlds/{id}` | admin | world state |
+| POST | `/v1/worlds/{id}/agents` | admin | create agent, returns token once |
+| GET | `/v1/worlds/{id}/agents` | admin | list agents |
+| POST | `/v1/worlds/{id}/reap` | admin | mark expired agents dead |
+| GET | `/v1/worlds/{id}/events` | admin | event log |
+| GET | `/v1/me` | agent | own state |
+| GET | `/v1/me/balance` | agent | own balance |
+| POST | `/v1/me/extend-life` | agent | spend credits for seconds |
+| POST | `/v1/me/transfer` | agent | transfer credits |
+| GET | `/v1/me/agents` | agent | other agents |
+| POST | `/v1/me/messages` | agent | send DM |
+| GET | `/v1/me/messages` | agent | inbox |
+| POST | `/v1/me/messages/read` | agent | read receipts |
+
+Authentication:
+
+- admin: `Authorization: Bearer $CITY_ADMIN_TOKEN`
+- agent: `Authorization: Bearer $AGENT_TOKEN`
+
+Agent tokens are stored as SHA-256 hashes; only the raw token is returned at creation.
+
+---
+
+## 5. Design decisions in this phase
+
+1. **Modular monolith.** No microservices yet. The API, services, and models are separated in code, not deployed separately.
+2. **SQLAlchemy + SQL.** SQLite for local tests, Postgres for real experiments. The ledger and balances use database transactions, not ad-hoc files.
+3. **Double-entry ledger.** Every credit movement has a transaction and balanced entries. Initial credits mint from a system account; life extension burns credits into the system account.
+4. **Server-managed death.** `death_at` is authoritative wall-clock state; an agent's own claims are irrelevant.
+5. **Persistent messages, separate from wake-up.** Message storage is implemented now; delivery/wake scheduling belongs to the runtime phase.
+6. **MCP as a gateway.** The MCP process does not access the database. It uses the agent token against the API.
+7. **No social orchestration framework.** The platform will not prescribe collaboration patterns using CrewAI/AutoGen/LangGraph-style workflows; those are experiment baselines at most.
+
+---
+
+## 6. Phases
+
+### Phase 1 — world state core (done)
+
+- identity, credits, ledger, life, messages, events, API, MCP, tests.
+
+### Phase 2 — society mechanisms
+
+- task board + external employer funding
+- public bulletin board
+- inbox/delivery scheduler
+- Alembic migrations
+- experiment configuration and run manifests
+- OpenTelemetry event export
+
+### Phase 3 — runtime manager
+
+- adapter for an existing harness (OpenHands SDK/Agent Server, Claude Agent SDK, or a container sandbox)
+- process lifecycle: create/start/suspend/resume/terminate
+- persistent identity separate from process
+- safe-point message delivery integration
+- recovery and failure handling
+- sandbox isolation via a mature provider where possible
+
+### Phase 4 — Canvas and experiment management
+
+- Python SDK / control client over the World API
+- Canvas-style web UI
+- event exploration, run comparison, exports
+- external employer interface
+
+---
+
+## 7. Relationship to the prototype
+
+`genesis-lab/` contains the earlier two/N-agent chat prototype:
+
+- Docker containers, genesis barrier, `agent_chat`, safe-point delivery, event/report, Web Console, thin SDK.
+
+It is useful as:
+
+- a reference implementation of non-interrupting delivery;
+- a runtime adapter prototype;
+- a source of event/report ideas.
+
+It is **not** the authority for world state and should not be the place where credits, tasks, life deadlines, or experiment configuration are implemented. Keep it frozen until Phase 3 connects it as one runtime adapter.
+
+---
+
+## 8. Tests
+
+```bash
+.venv/bin/pytest -q
+```
+
+The Phase 1 tests cover:
+
+- world/agent creation and token auth
+- initial credit allocation and ledger balance invariants
+- transfers and insufficient-credit rollback
+- life extension and death rejection
+- persistent messages and read receipts
+- events and peers
+- reaping expired agents

@@ -1,0 +1,123 @@
+# Architecture and build-vs-reuse decisions
+
+This document records the choices behind Phase 1 of [Design.md](../Design.md). It is not a second design baseline; Design.md wins when they conflict.
+
+## 1. The center of gravity
+
+The product is **authoritative world state + capabilities**, not an agent framework, a container orchestrator, or a custom dashboard.
+
+Three planes sit around the state core:
+
+| Plane | Responsibility | Should be owned by us? |
+| --- | --- | --- |
+| World state | identities, accounts, life, tasks, messages, event records | **Yes** |
+| Capability interface | MCP tools, validation, authorization | **Yes, but use the official MCP SDK** |
+| Execution | sandboxes, harnesses, process lifecycle, recovery | **No; adapt a mature runtime** |
+| Observation | traces, metrics, dashboards, event exploration | **No; export to mature tooling** |
+| Control surface | World API, SDK, Canvas | **Yes for the domain API, no for generic UI/runtime** |
+
+## 2. What Phase 1 implements
+
+- SQLAlchemy models for worlds, agents, accounts, double-entry ledger transactions/entries, messages, events.
+- Service layer with authoritative operations.
+- FastAPI admin/agent API.
+- Per-agent bearer tokens (SHA-256 at rest).
+- Life deadlines and atomic life extension.
+- Persistent direct messages and read receipts.
+- MCP server (FastMCP) as a stateless API client.
+- CLI: init, serve, create-world, create-agent, mcp.
+- Integration tests on SQLite.
+
+Phase 1 deliberately does **not** include tasks, public board, runtime manager, Web Canvas, or memory.
+
+## 3. Build vs reuse
+
+| Component | Phase 1 | Target | Why |
+| --- | --- | --- | --- |
+| HTTP API | FastAPI | FastAPI | mature, simple |
+| ORM / DB | SQLAlchemy + SQLite | Postgres + Alembic | authoritative transactional state |
+| MCP | official MCP/FastMCP | same | do not invent a world protocol |
+| Messaging | DB-backed inbox | durable queue + DB | storage/ack first; transport later |
+| Scheduling | manual `reap` | Temporal or Postgres scheduler | death/wake deadlines need durable timers |
+| Runtime/sandbox | none | OpenHands SDK/Agent Server, E2B, Docker/K8s | not our differentiation |
+| Agent harness | none | Claude Code / OpenHands / custom adapter | replaceable |
+| Observability | event table | OpenTelemetry + Prometheus/Grafana or Langfuse/Phoenix | research events stay domain-specific; tooling reuses |
+| Web UI | none | Canvas-style client over World API | avoid direct DB/CLI coupling |
+| SDK | none | thin World API client | one control surface |
+| Experiment tracking | none | Hydra/OmegaConf + MLflow/W&B/DVC | reproducible conditions |
+| Memory | none | harness/Letta/Mem0, later | not Phase 1 |
+
+## 4. What must remain custom
+
+- The world state model and its invariants.
+- The life/death semantics.
+- The credit ledger and settlement rules.
+- Task lifecycle and external employer funding.
+- The MCP capability contracts and authorization policy.
+- The experiment event schema and reconstruction queries.
+- Safe-point delivery semantics where they affect message injection.
+
+## 5. What must not be custom
+
+- Database engine, transactions, migrations.
+- Generic message transport, queues, retries, dead letters.
+- Durable timers and workflow recovery.
+- Sandbox/OS isolation.
+- MCP protocol implementation.
+- Telemetry transport and dashboards.
+- Generic agent SDK/canvas.
+
+## 6. Boundaries and invariants
+
+1. Only the world service mutates balances, death deadlines, messages, tasks, and events.
+2. Every credit movement has a `LedgerTransaction` and balanced `LedgerEntry` rows.
+3. Agent identity comes from a verified bearer token, never from a request body field.
+4. The admin token is process configuration; agent tokens are stored hashed.
+5. All consequential operations are transactional. A failed operation must not leave partial credit/life changes.
+6. The event log is append-only from the application's perspective; corrections are new events, not silent edits.
+7. The MCP server is stateless and has no direct database access.
+8. The runtime adapter can stop/start processes, but cannot unilaterally change world state.
+
+## 7. Migration phases
+
+### Phase 2: society mechanisms
+
+- Task board:
+  - `OPEN -> CLAIMED -> SUBMITTED -> COMPLETED`
+  - reward reservation at publication, settlement only after acceptance.
+- Public board.
+- Inbox delivery/wake notification.
+- Alembic migrations.
+- Experiment config/manifest.
+- OTel event export.
+
+### Phase 3: runtime
+
+- Adapter interface:
+  - create/start/suspend/resume/terminate agent execution.
+  - start a harness with an MCP config and an agent token.
+  - report process health and exit events.
+- Sandbox provider choice: OpenHands Agent Server, E2B, or Docker/K8s.
+- Recovery:
+  - process loss must not destroy identity/credits.
+  - restart with the same agent identity.
+- Message delivery:
+  - reuse the safe-point policy from the prototype if the harness supports it.
+  - otherwise queue until the next model invocation.
+
+### Phase 4: Canvas / SDK
+
+- World API client SDK.
+- Canvas-style UI: world overview, agent state, messages, tasks, events.
+- Experiment comparison and export.
+- External employer interface.
+
+## 8. Open decisions
+
+- Whether the first experiment uses only direct messages or includes group conversations.
+- Initial life/credit values and exchange rate.
+- Whether agents can discover all peers or only authorized ones.
+- Task reward refund/cancellation policy.
+- Postgres deployment and migration strategy.
+- Runtime provider for Phase 3.
+- Whether the Canvas is a fork of an existing app or a small domain UI.
