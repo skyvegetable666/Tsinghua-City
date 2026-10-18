@@ -23,7 +23,10 @@ def _compose(root: Path, args: list[str], *, env: dict[str, str], check: bool = 
             check=False,
         )
     except FileNotFoundError as exc:
-        raise DockerError("docker CLI not found on PATH; install Docker Desktop") from exc
+        raise DockerError(
+            "docker CLI not found on PATH; install Docker Engine + compose plugin "
+            "(Linux) or Docker Desktop (Windows/macOS)"
+        ) from exc
     except subprocess.TimeoutExpired as exc:
         raise DockerError(f"docker compose timed out: {' '.join(args)}") from exc
     if check and process.returncode != 0:

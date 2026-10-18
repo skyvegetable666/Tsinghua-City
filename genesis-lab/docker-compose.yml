@@ -30,6 +30,10 @@ x-agent: &agent
   image: ${AGENT_IMAGE:-genesis-lab-agent:latest}
   init: true
   stop_grace_period: 30s
+  # Linux Docker Engine: make the host reachable by name from inside the
+  # containers. Docker Desktop provides this name as well; the mapping is
+  # harmless there. On WSL2 + Docker Desktop, set BROKER_URL to the WSL address
+  # instead, because this name points at the Windows host.
   extra_hosts:
     - "host.docker.internal:host-gateway"
 

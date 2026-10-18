@@ -6,12 +6,14 @@ import argparse
 import asyncio
 import json
 import os
+import platform
 import shutil
 import signal
 import socket
 import sys
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from pathlib import Path
 
@@ -83,6 +85,24 @@ def _latest_run_dir(root: Path) -> Path:
     return runs[0]
 
 
+def _container_host_base(settings) -> str:
+    """Scheme + host that containers use to reach host services."""
+    if settings.broker_url:
+        parsed = urllib.parse.urlsplit(settings.broker_url)
+        if parsed.scheme and parsed.hostname:
+            host = parsed.hostname
+            if ":" in host:
+                host = f"[{host}]"
+            return f"{parsed.scheme}://{host}"
+    return "http://host.docker.internal"
+
+
+def _broker_url_for_containers(settings) -> str:
+    if settings.broker_url:
+        return settings.broker_url
+    return f"http://host.docker.internal:{settings.broker_port}"
+
+
 def _compose_env(settings, run, mock: MockLLM | None) -> dict[str, str]:
     env = dict(os.environ)
     env.update(
@@ -91,7 +111,7 @@ def _compose_env(settings, run, mock: MockLLM | None) -> dict[str, str]:
             "RUN_ID": run.run_id,
             "BROKER_TOKEN": run.token,
             "BROKER_PORT": str(settings.broker_port),
-            "BROKER_URL": f"http://host.docker.internal:{settings.broker_port}",
+            "BROKER_URL": _broker_url_for_containers(settings),
             "AGENT_IMAGE": settings.agent_image,
             "HOOK_BATCH_MAX_CHARS": str(settings.hook_batch_max_chars),
             "MAX_MESSAGE_CHARS": str(settings.max_message_chars),
@@ -100,7 +120,7 @@ def _compose_env(settings, run, mock: MockLLM | None) -> dict[str, str]:
         }
     )
     if mock is not None:
-        base = f"http://host.docker.internal:{settings.mock_llm_port}"
+        base = f"{_container_host_base(settings)}:{settings.mock_llm_port}"
         env.update(
             {
                 "ANTHROPIC_BASE_URL": base,
@@ -154,6 +174,8 @@ def cmd_doctor(args: argparse.Namespace) -> int:
         print(f"[FAIL] configuration: {exc}")
         return 1
     failures: list[str] = []
+    print(f"[INFO] platform: {platform.platform()}")
+    print(f"[INFO] containers reach broker at: {_broker_url_for_containers(settings)}")
 
     def check(name: str, ok: bool, detail: str = "") -> None:
         print(f"[{'PASS' if ok else 'FAIL'}] {name}{(' - ' + detail) if detail else ''}", flush=True)
@@ -162,6 +184,11 @@ def cmd_doctor(args: argparse.Namespace) -> int:
 
     check("python >= 3.11", sys.version_info >= (3, 11), sys.version.split()[0])
     check(".env exists", (root / ".env").exists(), str(root / ".env"))
+    check(
+        "BROKER_HOST reachable from containers",
+        settings.broker_host not in {"127.0.0.1", "localhost", "::1"},
+        settings.broker_host,
+    )
     token = os.environ.get("ANTHROPIC_AUTH_TOKEN", "")
     if not token:
         token_detail = "missing (edit .env)"
@@ -185,8 +212,14 @@ def cmd_doctor(args: argparse.Namespace) -> int:
         check(label, path.exists(), str(path))
 
     version = dockerctl.compose_version()
-    check("docker compose v2", version is not None, version or "not found")
+    check(
+        "docker compose v2",
+        version is not None,
+        version or "install Docker Engine + compose plugin (Linux) or Docker Desktop (Windows)",
+    )
     ok, detail = dockerctl.daemon_ok()
+    if not ok and "permission denied" in detail.lower():
+        detail += " (add your user to the docker group: sudo usermod -aG docker $USER)"
     check("docker daemon", ok, detail)
 
     current = read_current(root)
@@ -199,6 +232,13 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     else:
         free = _port_free(settings.broker_host, settings.broker_port)
         check(f"broker port {settings.broker_port}", free, "free" if free else "already in use")
+        if args.mock:
+            mock_free = _port_free("0.0.0.0", settings.mock_llm_port)
+            check(
+                f"mock LLM port {settings.mock_llm_port}",
+                mock_free,
+                "free" if mock_free else "already in use",
+            )
 
     print()
     if failures:
@@ -232,7 +272,11 @@ def cmd_up(args: argparse.Namespace) -> int:
             "run_id": run.run_id,
             "started_at": run.started_iso,
             "mode": "mock" if args.mock else "real",
-            "broker": {"host": settings.broker_host, "port": settings.broker_port},
+            "broker": {
+                "host": settings.broker_host,
+                "port": settings.broker_port,
+                "container_url": _broker_url_for_containers(settings),
+            },
             "agents": {
                 spec.agent_id: {"name": spec.name, "peer": spec.peer_name}
                 for spec in settings.agents.values()
@@ -256,6 +300,7 @@ def cmd_up(args: argparse.Namespace) -> int:
         mode="mock" if args.mock else "real",
         run_dir=str(run.run_dir),
         broker_port=settings.broker_port,
+        broker_url=_broker_url_for_containers(settings),
         image=settings.agent_image,
         model="mock-model[1m]" if args.mock else os.environ.get("ANTHROPIC_MODEL", ""),
         limits={
@@ -271,7 +316,7 @@ def cmd_up(args: argparse.Namespace) -> int:
             "RUN_ID": run.run_id,
             "BROKER_TOKEN": run.token,
             "BROKER_PORT": str(settings.broker_port),
-            "BROKER_URL": f"http://host.docker.internal:{settings.broker_port}",
+            "BROKER_URL": _broker_url_for_containers(settings),
             "AGENT_IMAGE": settings.agent_image,
             "HOOK_BATCH_MAX_CHARS": str(settings.hook_batch_max_chars),
             "MAX_MESSAGE_CHARS": str(settings.max_message_chars),

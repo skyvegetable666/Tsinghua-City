@@ -4,7 +4,7 @@
 > agent 之间唯一的通道是 `agent_chat(recipient, message)`；消息全部由 Python 系统路由。
 > 收到消息的 agent **不会被打断当前推理**，消息会在最早的安全点注入。
 
-这是一个可以直接跑的实验台。宿主机（Windows）上只有一个 Python 程序，它负责：
+这是一个可以直接跑的实验台。宿主机（Linux / Windows）上只有一个 Python 程序，它负责：
 
 - 启动两个 Docker 容器；
 - 等待双方就绪，在同一时刻发送 **创世纪（genesis）**；
@@ -19,7 +19,7 @@
 ## 1. 它到底怎么跑
 
 ```
-Windows host
+Linux / Windows host
 ┌────────────────────────────────────────────────────────────────────┐
 │  python -m supervisor up                                           │
 │    ├─ Supervisor broker  (aiohttp, 0.0.0.0:8787)                    │
@@ -129,34 +129,78 @@ genesis-lab/
 
 ---
 
-## 5. Windows 快速开始
+## 5. 快速开始（Linux / Windows）
 
-### 前置条件
+### 5.1 前置条件
+
+两个平台共同要求：
+
+- Python 3.11+（只在宿主机上跑 supervisor）；
+- 第一次构建镜像需要网络（npm / pip / Docker Hub）；
+- 当前用户能执行 `docker info` 和 `docker compose version`。
+
+**Linux（Docker Engine）**
+
+- Docker Engine 20.10+，以及 Compose v2 插件；安装见 <https://docs.docker.com/engine/install/>，装完把用户加入 docker 组；
+- Python 需要 `venv` 模块（Debian/Ubuntu：`sudo apt install python3 python3-venv`）；
+- 建议用原生 Linux，或在 WSL2 里直接安装 Docker Engine；
+- 如果启用了 ufw/firewalld，需要允许 Docker 网段访问宿主机 broker 的 8787（`--mock` 模式还有 8790）。
+
+**Windows**
 
 - Windows 10/11 + **Docker Desktop**（Linux containers 模式）；
-- Python 3.11+（宿主机只需跑 supervisor）；
-- 第一次构建镜像需要网络（npm/pip/Docker Hub）。
+- Docker Desktop 自带 `host.docker.internal`；compose 里也写了 host-gateway 映射。
 
-### 5.1 安装宿主机依赖
+### 5.2 Linux：安装依赖并生成配置
+
+```bash
+cd genesis-lab
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r supervisor/requirements.txt
+python -m supervisor init
+python -m supervisor doctor --mock
+```
+
+Linux 主机网络说明：
+
+- compose 已经给容器加了 `extra_hosts: host.docker.internal:host-gateway`。原生 Linux Docker Engine 下，容器可以通过 `host.docker.internal:8787` 访问宿主机上的 broker（broker 默认监听 `0.0.0.0:8787`）。
+- 如果 `doctor` 报 docker permission denied：
+
+  ```bash
+  sudo usermod -aG docker "$USER"
+  newgrp docker      # 或重新登录
+  ```
+
+- ufw 示例（只放行 Docker 网段，不要对公网开放；用 `docker network inspect` 确认实际网段）：
+
+  ```bash
+  sudo ufw allow from 172.16.0.0/12 to any port 8787 proto tcp
+  # --mock 模式还需要 mock LLM 端口
+  sudo ufw allow from 172.16.0.0/12 to any port 8790 proto tcp
+  ```
+
+  firewalld 类似：把 `docker0` / `br-*` 接口放进 trusted zone，或允许上述网段访问 8787/8790。
+
+- rootless Docker 下 `host-gateway` 不一定指向宿主机；本实验建议使用 rootful Docker（未验证 rootless）。
+- **WSL2 + Docker Desktop**：容器里的 `host.docker.internal` 指向 Windows，不是 WSL 里的 Python。两种做法：
+  1. 在 WSL2 里直接安装 Docker Engine 并运行 supervisor（推荐，等价于原生 Linux）；
+  2. 或在 `.env` 设置 `BROKER_URL=http://<WSL_IP>:8787`，并让 Windows 防火墙允许该端口。
+
+### 5.3 Windows：安装依赖并生成配置
 
 ```powershell
 cd genesis-lab
 python -m venv .venv
 .venv\Scripts\Activate.ps1
 pip install -r supervisor\requirements.txt
-```
-
-### 5.2 生成配置
-
-```powershell
 python -m supervisor init
+python -m supervisor doctor --mock
 ```
 
-这会从 `.env.example` 复制出 `.env`。现在先不用填 key。
+### 5.4 无 key 干跑（两个平台相同）
 
-### 5.3 无 key 干跑（强烈建议先做）
-
-```powershell
+```bash
 python -m supervisor up --mock
 ```
 
@@ -164,11 +208,11 @@ python -m supervisor up --mock
 - 两个容器里是真实的 Claude Code，只是 API 指向宿主机的脚本化 mock；
 - 终端会显示注册、创世、消息投递日志；
 - `Ctrl+C` 结束（会给 agent 发收尾通知后停容器）；
-- 结束后看 `runs\<run-id>\transcript.md`。
+- 结束后看 `runs/<run-id>/transcript.md`。
 
 > `--mock` 只验证管道。mock 的回复是固定脚本，不代表模型行为。
 
-### 5.4 填 API key，跑真实模型
+### 5.5 填 API key，跑真实模型
 
 编辑 `.env`：
 
@@ -182,15 +226,16 @@ ANTHROPIC_MODEL=deepseek-flash[1m]
 
 检查环境：
 
-```powershell
+```bash
 python -m supervisor doctor
 python -m supervisor up
 ```
 
-运行中可以在另一个 PowerShell 里：
+运行中可以在另一个终端里（先激活 venv；Windows 用 PowerShell，Linux 用 bash）：
 
-```powershell
-.venv\Scripts\Activate.ps1
+```bash
+# Windows: .venv\Scripts\Activate.ps1
+# Linux:   source .venv/bin/activate
 python -m supervisor status
 python -m supervisor say "operator: 请注意你们只有十分钟。"
 python -m supervisor say --to a "只对你说的系统消息"
@@ -200,11 +245,11 @@ python -m supervisor end --reason "时间到"
 
 > `doctor` 会检查 Docker、compose、端口、prompt 文件和 key。没有 key 时用 `doctor --mock`。
 
-### 5.5 改实验内容
+### 5.6 改实验内容
 
-- `config\mission.md`：本次任务，插入 genesis；
-- `config\world.md`：世界规则，作为 Claude Code 的 system prompt 附加；
-- `config\genesis.md`：创世纪模板，可用占位符 `$agent_name`、`$peer_name`、`$mission`、`$run_id`、`$genesis_time`。
+- `config/mission.md`：本次任务，插入 genesis；
+- `config/world.md`：世界规则，作为 Claude Code 的 system prompt 附加；
+- `config/genesis.md`：创世纪模板，可用占位符 `$agent_name`、`$peer_name`、`$mission`、`$run_id`、`$genesis_time`。
 
 改完重启 `up` 即可（容器镜像不用重建）。
 
@@ -242,7 +287,9 @@ python -m supervisor end --reason "时间到"
 | `RUN_MAX_SECONDS` | 0 | 时长上限，0 = 不限 |
 | `END_GRACE_SECONDS` | 45 | 收到结束指令后给 agent 收尾的时间 |
 | `AGENT_IMAGE` | `genesis-lab-agent:latest` | 镜像 tag |
+| `BROKER_HOST` | `0.0.0.0` | broker 绑定地址；必须是容器可达的地址，勿用 `127.0.0.1` |
 | `BROKER_PORT` | 8787 | 宿主机 broker 端口；容器通过 `host.docker.internal` 访问 |
+| `BROKER_URL` | 空 | 容器内访问 broker 的完整 URL；空 = `http://host.docker.internal:<BROKER_PORT>`；WSL2 + Docker Desktop 或自定义网络时显式设置 |
 | `MOCK_LLM_PORT` | 8790 | mock 模式端口 |
 | `BROKER_TOKEN` | 空 | 留空则每次运行随机生成（推荐） |
 | `WORLD_FILE` / `MISSION_FILE` / `GENESIS_FILE` | config/... | prompt 文件路径 |
@@ -251,7 +298,7 @@ python -m supervisor end --reason "时间到"
 
 ## 8. 观测与数据
 
-每次 `up` 在 `runs\<UTC 时间戳>-xxxx\` 下产生：
+每次 `up` 在 `runs/<UTC 时间戳>-xxxx/` 下产生：
 
 - `events.jsonl`：一行一个事件，带 `ts` / `ts_iso` / `run_id`。主要事件：
   - `run_started`、`agent_registered`、`genesis`（含完整 prompt）；
@@ -279,11 +326,13 @@ print(sum(e["latency_s"] for e in deliveries) / len(deliveries))
 
 | 现象 | 排查 |
 | --- | --- |
-| `docker compose` 找不到 | Docker Desktop 未启动 / CLI 不在 PATH；`python -m supervisor doctor` |
+| `docker compose` 找不到 | Docker Desktop / Docker Engine 未启动，CLI 不在 PATH，或 Linux 用户不在 docker 组；`python -m supervisor doctor` |
+| docker permission denied | `sudo usermod -aG docker "$USER"`，然后重新登录（或 `newgrp docker`） |
 | 容器起不来 | `docker compose logs --tail 100 agent-a`；常见是镜像构建失败或 key 为空 |
 | bridge 一直 “waiting for genesis” | 另一个 agent 没连上；看 `logs`；`/health` 看 phase 和 agents |
 | 端口 8787 被占用 | 改 `BROKER_PORT`；或 `down` 旧 run |
-| 容器访问不到 broker | Docker Desktop 的 `host.docker.internal`；Windows 防火墙允许 Python；`BROKER_HOST` 必须是 `0.0.0.0`。如果仍不通，删掉 compose 里的 `extra_hosts`，让 Docker Desktop 自己解析该名字 |
+| 容器访问不到 broker | Linux：确认 compose 的 `extra_hosts: host.docker.internal:host-gateway`、`BROKER_HOST=0.0.0.0`，并让 ufw/firewalld 放行 Docker 网段到 8787；Windows：Docker Desktop 自带 `host.docker.internal`，并让防火墙允许 Python。WSL2 + Docker Desktop 见 5.2 |
+| WSL2 + Docker Desktop 下容器连不到 broker | 容器里的 `host.docker.internal` 指向 Windows，不是 WSL；按 5.2 在 WSL 内装 Docker Engine，或设置 `BROKER_URL=http://<WSL_IP>:8787` 并放行防火墙 |
 | 真实模型报鉴权/模型错误 | 检查 `ANTHROPIC_BASE_URL` / `ANTHROPIC_AUTH_TOKEN` / `ANTHROPIC_MODEL`；先 `--mock` 排除管道问题 |
 | 出现 `unrecognized_model` 警告 | DeepSeek 模型名不在 Claude Code 模型目录里，属预期；`CLAUDE_CODE_MAX_CONTEXT_TOKENS` 已设置 |
 | 消息很晚才到 | 正常：如果对方在长回合里且没有工具调用，最快也要等回合结束；见第 2 节 |
@@ -291,7 +340,7 @@ print(sum(e["latency_s"] for e in deliveries) / len(deliveries))
 
 日志位置：
 
-- 宿主机：`runs\<id>\events.jsonl`；
+- 宿主机：`runs/<id>/events.jsonl`；
 - 容器 stdout：`docker compose logs -f agent-a`（bridge + claude 的 stderr 都在里面）。
 
 ---
@@ -310,9 +359,20 @@ print(sum(e["latency_s"] for e in deliveries) / len(deliveries))
 
 ## 11. 测试与验证
 
-宿主机单元/集成测试：
+宿主机单元/集成测试。
+
+Windows：
 
 ```powershell
+pip install -r requirements-dev.txt
+python -m pytest -q
+```
+
+Linux：
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
 pip install -r requirements-dev.txt
 python -m pytest -q
 ```
@@ -321,9 +381,17 @@ python -m pytest -q
 
 真实 Claude Code 集成测试（需要宿主机有 `claude` CLI；仍然不需要 API key，用 mock LLM）：
 
+Windows：
+
 ```powershell
 $env:GENESIS_RUN_CLI_TESTS="1"
 python -m pytest -q tests/test_cli_integration.py tests/test_two_agent_world.py -s
+```
+
+Linux：
+
+```bash
+GENESIS_RUN_CLI_TESTS=1 python -m pytest -q tests/test_cli_integration.py tests/test_two_agent_world.py -s
 ```
 
 这两个测试会启动真实的 broker、真实的 `runtime.bridge` 子进程、真实的 Claude Code CLI 和脚本化 mock 模型，验证：
@@ -333,7 +401,7 @@ python -m pytest -q tests/test_cli_integration.py tests/test_two_agent_world.py 
 - 真实的 `mcp__agentchat__agent_chat` 工具调用能穿过 MCP → bridge → broker；
 - 两个 agent 能互相收发并优雅结束。
 
-> 这些测试在 Linux/macOS 上开发验证；Windows 下依赖 Docker Desktop 的容器路径未被本仓库的测试覆盖，请用 `python -m supervisor up --mock` 做首次端到端确认。
+> 单元/真实 CLI 集成测试已在 Linux 上验证；Docker 容器路径（Linux Docker Engine / Windows Docker Desktop）需要按 5.2 / 5.3 在目标平台用 `python -m supervisor up --mock` 做首次确认。
 
 ### 提交前卫生检查
 
@@ -346,7 +414,7 @@ python -m pytest -q tests/test_cli_integration.py tests/test_two_agent_world.py 
 
 提交前运行：
 
-```powershell
+```bash
 python scripts/check_hygiene.py
 ```
 
@@ -364,7 +432,8 @@ python scripts/check_hygiene.py
 
 ## 13. 快速检查清单
 
-- [ ] Docker Desktop 启动，`docker info` 正常
+- [ ] Docker Desktop（Windows）或 Docker Engine（Linux）启动，`docker info` 正常
+- [ ] Linux：当前用户在 docker 组；Windows：Docker Desktop 正常运行
 - [ ] `python -m supervisor doctor` 通过
 - [ ] `up --mock` 成功，transcript 里有两条问候
 - [ ] 填 key，`up` 成功

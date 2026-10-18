@@ -85,6 +85,10 @@ class Settings:
     world_path: Path
     mission_path: Path
     genesis_path: Path
+    # Optional override for the broker URL as seen from inside the containers.
+    # Empty means http://host.docker.internal:<broker_port>, which works on
+    # native Linux (via compose extra_hosts) and Docker Desktop.
+    broker_url: str = ""
     anthropic_env: dict[str, str] = field(default_factory=dict)
 
     def agent_by_name(self, name: str) -> AgentSpec | None:
@@ -154,6 +158,7 @@ def load_settings(root: Path | None = None, *, env_file: Path | None = None) -> 
         world_path=world_path,
         mission_path=mission_path,
         genesis_path=genesis_path,
+        broker_url=os.environ.get("BROKER_URL", "").strip(),
         anthropic_env=anthropic_env,
     )
 
