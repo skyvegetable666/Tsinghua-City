@@ -113,6 +113,81 @@ def test_unread_message_wakes_suspended_runtime(client, admin_headers, session_f
     client.post(base + "/stop", headers=admin)
 
 
+def test_runtime_auto_restart_on_failure(client, admin_headers, session_factory):
+    world = create_world(client, admin_headers)
+    alice = create_agent(client, admin_headers, world["id"], "alice")
+    admin = {"Authorization": "Bearer admin-token"}
+    base = f"/v1/worlds/{world['id']}/agents/{alice['id']}/runtime"
+
+    started = client.post(
+        base + "/start",
+        headers=admin,
+        json={
+            "command": _sleep_command(),
+            "restart_policy": "on_failure",
+            "max_restarts": 2,
+        },
+    ).json()
+    assert started["restart_policy"] == "on_failure"
+    psutil.Process(started["pid"]).kill()
+    for _ in range(20):
+        if not psutil.pid_exists(started["pid"]):
+            break
+        time.sleep(0.05)
+
+    from tsinghua_city.scheduler import tick_once
+
+    manager = client.app.state.runtime_manager
+    first_tick = tick_once(session_factory, manager)
+    assert first_tick["crashed_runtimes"] >= 1
+
+    crashed = client.get(base, headers=admin)
+    assert crashed.status_code == 200
+    assert crashed.json()["status"] == "CRASHED"
+    assert crashed.json()["next_restart_at"] is not None
+
+    with session_factory() as session:
+        from tsinghua_city.models import AgentRuntime
+
+        runtime = session.get(AgentRuntime, started["id"])
+        assert runtime is not None
+        runtime.next_restart_at = 0
+        session.commit()
+
+    result = tick_once(session_factory, manager)
+    assert result["restarted_runtimes"] >= 1
+
+    after = client.get(base, headers=admin)
+    assert after.status_code == 200
+    assert after.json()["status"] == "RUNNING"
+    assert after.json()["restart_count"] == 1
+    client.post(base + "/stop", headers=admin)
+
+
+def test_runtime_never_restarts_by_default(client, admin_headers):
+    world = create_world(client, admin_headers)
+    alice = create_agent(client, admin_headers, world["id"], "alice")
+    admin = {"Authorization": "Bearer admin-token"}
+    base = f"/v1/worlds/{world['id']}/agents/{alice['id']}/runtime"
+
+    started = client.post(
+        base + "/start",
+        headers=admin,
+        json={"command": _sleep_command()},
+    ).json()
+    psutil.Process(started["pid"]).kill()
+    for _ in range(20):
+        if not psutil.pid_exists(started["pid"]):
+            break
+        time.sleep(0.05)
+
+    crashed = client.get(base, headers=admin)
+    assert crashed.status_code == 200
+    assert crashed.json()["status"] == "CRASHED"
+    assert crashed.json()["next_restart_at"] is None
+    assert crashed.json()["restart_count"] == 0
+
+
 def test_runtime_reconcile_marks_killed_process_crashed(client, admin_headers):
     world = create_world(client, admin_headers)
     alice = create_agent(client, admin_headers, world["id"], "alice")

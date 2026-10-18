@@ -50,13 +50,13 @@ The old [genesis-lab](genesis-lab/) directory is kept as a **prototype** of the 
 - Agent token rotation on runtime start/resume
 - Startup reconciliation marks lost processes crashed
 - Wake suspended runtimes when unread inbox messages exist
-- Wake suspended runtimes when unread inbox messages exist
+- Optional on-failure restart with backoff and max attempts
 
 **Not implemented yet:**
 
 - Agent memory / context management
 - Container/sandbox adapter (Docker/OpenHands/E2B)
-- Durable runtime recovery/restart policy
+- Durable multi-worker restart/lease policy
 - Web Canvas / experiment dashboard
 - Experiment configuration and run comparison
 - Named external-employer identities and budgets
@@ -216,7 +216,7 @@ Tsinghua-City/
 - Default: `sqlite:///./runs/city.db` for local development.
 - Production: set `CITY_DATABASE_URL=postgresql+psycopg://...` (install the Postgres driver).
 - Schema creation is managed by Alembic: `tsinghua-city init` and
-  `tsinghua-city upgrade` apply `migrations/` up to `0004_agent_runtimes`.
+  `tsinghua-city upgrade` apply `migrations/` up to `0005_runtime_restart`.
 - Tests and the app factory still use `create_all` for disposable test databases.
 - `tsinghua-city tick` runs one maintenance sweep; `serve` starts an in-process
   scheduler (interval via `CITY_SCHEDULER_INTERVAL_SECONDS`).
@@ -340,10 +340,10 @@ Reusing a key with different parameters returns 409; reusing it with the same pa
 - [x] token rotation on start/resume
 - [x] startup/process-loss reconciliation
 - [x] wake suspended runtimes on unread messages
+- [x] optional on-failure restart with backoff and max attempts
 - [ ] container/sandbox adapter (OpenHands SDK/Agent Server, E2B, Docker/K8s)
 - [ ] safe-point injection into an active model call
-- [ ] automatic restart policy and durable recovery
-- [ ] multi-worker runtime ownership / leases
+- [ ] durable multi-worker recovery / leases
 
 ### Phase 4 — Canvas and experiment management
 
@@ -376,7 +376,7 @@ It is **not** the authority for world state and should not be the place where cr
 .venv/bin/pytest -q
 ```
 
-Default result: **26 passed, 2 skipped**. The two skipped tests are
+Default result: **28 passed, 2 skipped**. The two skipped tests are
 Postgres-only concurrency checks.
 
 On Windows machines with a system/WinINET proxy (for example Clash), set:
@@ -409,8 +409,9 @@ Tests cover:
 - runtime process-loss reconciliation
 - runtime does not leak server environment secrets
 - unread message wakes a suspended runtime
+- on-failure runtime restart with attempt limits
 - locked accounts refresh stale identity-map balances
-- Alembic baseline + 0002/0003/0004 migrations
+- Alembic baseline + 0002/0003/0004/0005 migrations
 
 ### Run against Postgres
 

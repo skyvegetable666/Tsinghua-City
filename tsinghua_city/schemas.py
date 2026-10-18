@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -161,6 +161,8 @@ class TaskOut(BaseModel):
 class RuntimeStart(BaseModel):
     command: list[str] = Field(min_length=1)
     adapter: str = Field(default="local", max_length=32)
+    restart_policy: Literal["never", "on_failure"] = "never"
+    max_restarts: int = Field(default=3, ge=0, le=100)
 
 
 class RuntimeOut(BaseModel):
@@ -169,6 +171,11 @@ class RuntimeOut(BaseModel):
     agent_id: str
     adapter: str
     status: str
+    restart_policy: str
+    max_restarts: int
+    restart_count: int
+    next_restart_at: str | None
+    last_restart_at: str | None
     command: list[str]
     pid: int | None
     log_path: str | None

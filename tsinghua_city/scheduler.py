@@ -22,6 +22,8 @@ def tick_once(session_factory, runtime_manager=None) -> dict[str, int]:
     expired = 0
     reaped = 0
     woken = 0
+    crashed = 0
+    restarted = 0
     with session_factory() as session:
         worlds = session.scalars(select(World).where(World.status == "active")).all()
         for world in worlds:
@@ -29,7 +31,15 @@ def tick_once(session_factory, runtime_manager=None) -> dict[str, int]:
             reaped += service.reap_expired(session, world)
             if runtime_manager is not None:
                 woken += runtime_manager.wake_suspended(session, world)
-    return {"expired_tasks": expired, "reaped_agents": reaped, "woken_runtimes": woken}
+                crashed += runtime_manager.poll_running(session, world)
+                restarted += runtime_manager.restart_due(session, world)
+    return {
+        "expired_tasks": expired,
+        "reaped_agents": reaped,
+        "woken_runtimes": woken,
+        "crashed_runtimes": crashed,
+        "restarted_runtimes": restarted,
+    }
 
 
 class Scheduler:

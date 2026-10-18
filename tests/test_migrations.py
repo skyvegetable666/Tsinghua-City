@@ -28,6 +28,6 @@ def test_upgrade_creates_schema_and_records_version(tmp_path):
         } <= set(inspect(engine).get_table_names())
         with engine.connect() as connection:
             version = connection.execute(text("select version_num from alembic_version")).scalar()
-        assert version == "0004_agent_runtimes"
+        assert version == "0005_runtime_restart"
     finally:
         engine.dispose()

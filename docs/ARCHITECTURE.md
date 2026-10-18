@@ -50,11 +50,12 @@ Phase 3 core (runtime manager):
 - Agent token rotation on start/resume; raw token never stored in the DB.
 - Startup/process-loss reconciliation marks lost runtimes crashed.
 - Maintenance sweep resumes suspended runtimes that have unread inbox messages.
+- Optional on-failure restart with exponential backoff and max attempts.
 
 Not yet: container/sandbox adapter, durable multi-worker scheduler, safe-point
-injection into an active model call, automatic restart policy, Web Canvas,
-memory, experiment manifests, named external-employer budgets, group messaging,
-board moderation/editing.
+injection into an active model call, durable multi-worker restart/lease policy,
+Web Canvas, memory, experiment manifests, named external-employer budgets,
+group messaging, board moderation/editing.
 
 ## 3. Build vs reuse
 
@@ -134,6 +135,7 @@ board moderation/editing.
   - ~~start a harness with generated MCP config and an agent token.~~ (done)
   - ~~report process health and exit events.~~ (reconcile done)
   - ~~wake suspended runtimes when unread messages exist.~~ (done)
+  - ~~on-failure restart with backoff and max attempts.~~ (done)
 - Sandbox provider choice: OpenHands Agent Server, E2B, or Docker/K8s (next).
 - Recovery:
   - ~~process loss must not destroy identity/credits.~~ (database identity persists)

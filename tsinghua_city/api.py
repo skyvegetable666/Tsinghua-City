@@ -261,10 +261,7 @@ def create_app(
         session: Session = Depends(get_db),
     ) -> dict[str, Any]:
         world, agent = runtime_subject(world_id, agent_id, session)
-        runtime = runtime_manager.get_runtime(session, world, agent)
-        if runtime is None:
-            raise HTTPException(status_code=404, detail="runtime not found")
-        return runtime_manager.view(runtime)
+        return runtime_manager.view(runtime_manager.status(session, world, agent))
 
     @app.post(
         "/v1/worlds/{world_id}/agents/{agent_id}/runtime/start",
@@ -284,6 +281,8 @@ def create_app(
             agent,
             command=body.command,
             adapter=body.adapter,
+            restart_policy=body.restart_policy,
+            max_restarts=body.max_restarts,
         )
         return runtime_manager.view(runtime)
 

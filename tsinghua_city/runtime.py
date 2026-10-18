@@ -30,6 +30,8 @@ SUSPENDED = "SUSPENDED"
 STOPPED = "STOPPED"
 CRASHED = "CRASHED"
 LOST = "LOST"
+RESTART_NEVER = "never"
+RESTART_ON_FAILURE = "on_failure"
 ACTIVE = {RUNNING, SUSPENDED}
 
 
@@ -231,10 +233,20 @@ class RuntimeManager:
         *,
         command: list[str],
         runtime: AgentRuntime | None,
+        restart_policy: str | None = None,
+        max_restarts: int | None = None,
+        is_restart: bool = False,
     ) -> AgentRuntime:
         service.require_alive(session, agent, world)
         if runtime is not None and runtime.status == RUNNING:
             raise service.DomainError("agent runtime is already running", 409)
+        if restart_policy is not None and restart_policy not in {
+            RESTART_NEVER,
+            RESTART_ON_FAILURE,
+        }:
+            raise service.DomainError("restart_policy must be never or on_failure", 400)
+        if max_restarts is not None and max_restarts < 0:
+            raise service.DomainError("max_restarts must be >= 0", 400)
         token = service.rotate_agent_token(session, agent)
         now = utcnow()
         runtime_id = runtime.id if runtime else "rt_" + uuid.uuid4().hex[:24]
@@ -259,10 +271,23 @@ class RuntimeManager:
                 command=command,
                 adapter=self.adapter.name,
                 status=RUNNING,
+                restart_policy=restart_policy or RESTART_NEVER,
+                max_restarts=max_restarts if max_restarts is not None else 3,
+                restart_count=0,
             )
             session.add(runtime)
         runtime.adapter = self.adapter.name
         runtime.command = list(command)
+        if restart_policy is not None:
+            runtime.restart_policy = restart_policy
+        if max_restarts is not None:
+            runtime.max_restarts = max_restarts
+        if is_restart:
+            runtime.restart_count += 1
+            runtime.last_restart_at = now
+        else:
+            runtime.restart_count = 0
+            runtime.next_restart_at = None
         runtime.status = RUNNING
         runtime.pid = started.pid
         runtime.pid_create_time = started.pid_create_time
@@ -272,12 +297,17 @@ class RuntimeManager:
         runtime.last_error = None
         runtime.started_at = now
         runtime.stopped_at = None
+        runtime.next_restart_at = None
         runtime.updated_at = now
         self._event(
             session,
             runtime,
-            "runtime.started",
-            data={"pid": started.pid, "command": command},
+            "runtime.restarted" if is_restart else "runtime.started",
+            data={
+                "pid": started.pid,
+                "command": command,
+                "restart_count": runtime.restart_count,
+            },
         )
         try:
             session.commit()
@@ -296,11 +326,21 @@ class RuntimeManager:
         *,
         command: list[str],
         adapter: str = "local",
+        restart_policy: str = RESTART_NEVER,
+        max_restarts: int = 3,
     ) -> AgentRuntime:
         if adapter != self.adapter.name:
             raise service.DomainError(f"unsupported runtime adapter: {adapter}", 400)
         runtime = self.get_runtime(session, world, agent)
-        return self._start(session, world, agent, command=command, runtime=runtime)
+        return self._start(
+            session,
+            world,
+            agent,
+            command=command,
+            runtime=runtime,
+            restart_policy=restart_policy,
+            max_restarts=max_restarts,
+        )
 
     def _stop(
         self,
@@ -379,11 +419,20 @@ class RuntimeManager:
         if agent is not None:
             # The process may have held a valid token; invalidate it.
             service.rotate_agent_token(session, agent)
+        now = utcnow()
         runtime.status = CRASHED
         runtime.pid = None
         runtime.pid_create_time = None
         runtime.last_error = reason
-        runtime.updated_at = utcnow()
+        runtime.updated_at = now
+        if (
+            runtime.restart_policy == RESTART_ON_FAILURE
+            and runtime.restart_count < runtime.max_restarts
+        ):
+            delay = min(60, 2 ** min(runtime.restart_count, 6))
+            runtime.next_restart_at = now + delay
+        else:
+            runtime.next_restart_at = None
         self._event(session, runtime, "runtime.crashed", data={"reason": reason})
 
     def status(self, session: Session, world: World, agent: Agent) -> AgentRuntime:
@@ -431,6 +480,60 @@ class RuntimeManager:
                 continue
         return woken
 
+    def poll_running(self, session: Session, world: World) -> int:
+        changed = 0
+        runtimes = session.scalars(
+            select(AgentRuntime).where(
+                AgentRuntime.world_id == world.id,
+                AgentRuntime.status == RUNNING,
+            )
+        ).all()
+        for runtime in runtimes:
+            if not self.adapter.is_running(runtime):
+                self._mark_crashed(session, runtime, "process is not running")
+                changed += 1
+        if changed:
+            session.commit()
+        return changed
+
+    def restart_due(self, session: Session, world: World) -> int:
+        now = utcnow()
+        runtimes = session.scalars(
+            select(AgentRuntime).where(
+                AgentRuntime.world_id == world.id,
+                AgentRuntime.status == CRASHED,
+                AgentRuntime.restart_policy == RESTART_ON_FAILURE,
+                AgentRuntime.next_restart_at.is_not(None),
+                AgentRuntime.next_restart_at <= now,
+                AgentRuntime.restart_count < AgentRuntime.max_restarts,
+            )
+        ).all()
+        restarted = 0
+        for runtime in runtimes:
+            agent = session.get(Agent, runtime.agent_id)
+            if agent is None:
+                continue
+            try:
+                self._start(
+                    session,
+                    world,
+                    agent,
+                    command=list(runtime.command),
+                    runtime=runtime,
+                    restart_policy=runtime.restart_policy,
+                    max_restarts=runtime.max_restarts,
+                    is_restart=True,
+                )
+                restarted += 1
+            except service.DomainError:
+                session.rollback()
+                current = self.get_runtime(session, world, agent)
+                if current is not None:
+                    current.next_restart_at = None
+                    session.commit()
+                continue
+        return restarted
+
     def reconcile(self) -> int:
         changed = 0
         with self._session_factory() as session:
@@ -452,6 +555,11 @@ class RuntimeManager:
             "agent_id": runtime.agent_id,
             "adapter": runtime.adapter,
             "status": runtime.status,
+            "restart_policy": runtime.restart_policy,
+            "max_restarts": runtime.max_restarts,
+            "restart_count": runtime.restart_count,
+            "next_restart_at": iso(runtime.next_restart_at),
+            "last_restart_at": iso(runtime.last_restart_at),
             "command": runtime.command,
             "pid": runtime.pid,
             "log_path": runtime.log_path,
