@@ -33,6 +33,10 @@ from .schemas import (
     MessageCreate,
     MessageOut,
     StateOut,
+    TaskCreate,
+    TaskOut,
+    TaskReject,
+    TaskSubmit,
     TransferRequest,
     WorldCreate,
     WorldOut,
@@ -204,6 +208,104 @@ def create_app(
             raise HTTPException(status_code=404, detail="world not found")
         return [service.event_view(event) for event in service.events(session, world, limit=limit)]
 
+    @app.post(
+        "/v1/worlds/{world_id}/tasks",
+        response_model=TaskOut,
+        status_code=201,
+    )
+    def create_external_task(
+        world_id: str,
+        body: TaskCreate,
+        _admin: None = Depends(require_admin),
+        session: Session = Depends(get_db),
+    ) -> dict[str, Any]:
+        world = session.get(World, world_id)
+        if world is None:
+            raise HTTPException(status_code=404, detail="world not found")
+        task = service.publish_external_task(
+            session,
+            world,
+            title=body.title,
+            description=body.description,
+            acceptance_criteria=body.acceptance_criteria,
+            reward=body.reward,
+            deadline_seconds=body.deadline_seconds,
+        )
+        return service.task_view(session, task)
+
+    @app.get("/v1/worlds/{world_id}/tasks", response_model=list[TaskOut])
+    def admin_list_tasks(
+        world_id: str,
+        status: str | None = None,
+        limit: int = Query(default=200, ge=1, le=500),
+        _admin: None = Depends(require_admin),
+        session: Session = Depends(get_db),
+    ) -> list[dict[str, Any]]:
+        world = session.get(World, world_id)
+        if world is None:
+            raise HTTPException(status_code=404, detail="world not found")
+        return [
+            service.task_view(session, task)
+            for task in service.list_tasks(session, world, status=status, limit=limit)
+        ]
+
+    @app.post("/v1/worlds/{world_id}/tasks/{task_id}/accept", response_model=TaskOut)
+    def admin_accept_task(
+        world_id: str,
+        task_id: str,
+        _admin: None = Depends(require_admin),
+        session: Session = Depends(get_db),
+    ) -> dict[str, Any]:
+        world = session.get(World, world_id)
+        if world is None:
+            raise HTTPException(status_code=404, detail="world not found")
+        task = service.accept_task(session, world, task_id, is_admin=True)
+        return service.task_view(session, task)
+
+    @app.post("/v1/worlds/{world_id}/tasks/{task_id}/reject", response_model=TaskOut)
+    def admin_reject_task(
+        world_id: str,
+        task_id: str,
+        body: TaskReject | None = None,
+        _admin: None = Depends(require_admin),
+        session: Session = Depends(get_db),
+    ) -> dict[str, Any]:
+        world = session.get(World, world_id)
+        if world is None:
+            raise HTTPException(status_code=404, detail="world not found")
+        task = service.reject_task(
+            session,
+            world,
+            task_id,
+            is_admin=True,
+            reason=body.reason if body else None,
+        )
+        return service.task_view(session, task)
+
+    @app.post("/v1/worlds/{world_id}/tasks/{task_id}/cancel", response_model=TaskOut)
+    def admin_cancel_task(
+        world_id: str,
+        task_id: str,
+        _admin: None = Depends(require_admin),
+        session: Session = Depends(get_db),
+    ) -> dict[str, Any]:
+        world = session.get(World, world_id)
+        if world is None:
+            raise HTTPException(status_code=404, detail="world not found")
+        task = service.cancel_task(session, world, task_id, is_admin=True)
+        return service.task_view(session, task)
+
+    @app.post("/v1/worlds/{world_id}/tasks/expire")
+    def admin_expire_tasks(
+        world_id: str,
+        _admin: None = Depends(require_admin),
+        session: Session = Depends(get_db),
+    ) -> dict[str, Any]:
+        world = session.get(World, world_id)
+        if world is None:
+            raise HTTPException(status_code=404, detail="world not found")
+        return {"expired": service.expire_tasks(session, world)}
+
     # ------------------------------------------------------------------ agent
     @app.get("/v1/me", response_model=StateOut)
     def me(auth: AgentAuth = Depends(require_agent)) -> dict[str, Any]:
@@ -284,6 +386,104 @@ def create_app(
     ) -> dict[str, Any]:
         changed = service.mark_read(auth.session, auth.agent, body.message_ids)
         return {"ok": True, "changed": changed}
+
+    @app.get("/v1/me/tasks", response_model=list[TaskOut])
+    def list_tasks(
+        status: str | None = None,
+        limit: int = Query(default=200, ge=1, le=500),
+        auth: AgentAuth = Depends(require_agent),
+    ) -> list[dict[str, Any]]:
+        tasks = service.list_tasks(auth.session, auth.world, status=status, limit=limit)
+        return [service.task_view(auth.session, task) for task in tasks]
+
+    @app.get("/v1/me/tasks/{task_id}", response_model=TaskOut)
+    def get_task(
+        task_id: str,
+        auth: AgentAuth = Depends(require_agent),
+    ) -> dict[str, Any]:
+        task = service.get_task(auth.session, auth.world, task_id)
+        return service.task_view(auth.session, task)
+
+    @app.post("/v1/me/tasks", response_model=TaskOut, status_code=201)
+    def publish_task(
+        body: TaskCreate,
+        auth: AgentAuth = Depends(require_agent),
+    ) -> dict[str, Any]:
+        task = service.publish_task(
+            auth.session,
+            auth.world,
+            auth.agent,
+            title=body.title,
+            description=body.description,
+            acceptance_criteria=body.acceptance_criteria,
+            reward=body.reward,
+            deadline_seconds=body.deadline_seconds,
+        )
+        return service.task_view(auth.session, task)
+
+    @app.post("/v1/me/tasks/{task_id}/claim", response_model=TaskOut)
+    def claim_task(
+        task_id: str,
+        auth: AgentAuth = Depends(require_agent),
+    ) -> dict[str, Any]:
+        task = service.claim_task(auth.session, auth.world, auth.agent, task_id)
+        return service.task_view(auth.session, task)
+
+    @app.post("/v1/me/tasks/{task_id}/submit", response_model=TaskOut)
+    def submit_task(
+        task_id: str,
+        body: TaskSubmit,
+        auth: AgentAuth = Depends(require_agent),
+    ) -> dict[str, Any]:
+        task = service.submit_task(
+            auth.session,
+            auth.world,
+            auth.agent,
+            task_id,
+            body.submission,
+        )
+        return service.task_view(auth.session, task)
+
+    @app.post("/v1/me/tasks/{task_id}/accept", response_model=TaskOut)
+    def accept_task(
+        task_id: str,
+        auth: AgentAuth = Depends(require_agent),
+    ) -> dict[str, Any]:
+        task = service.accept_task(
+            auth.session,
+            auth.world,
+            task_id,
+            actor=auth.agent,
+        )
+        return service.task_view(auth.session, task)
+
+    @app.post("/v1/me/tasks/{task_id}/reject", response_model=TaskOut)
+    def reject_task(
+        task_id: str,
+        body: TaskReject | None = None,
+        auth: AgentAuth = Depends(require_agent),
+    ) -> dict[str, Any]:
+        task = service.reject_task(
+            auth.session,
+            auth.world,
+            task_id,
+            actor=auth.agent,
+            reason=body.reason if body else None,
+        )
+        return service.task_view(auth.session, task)
+
+    @app.post("/v1/me/tasks/{task_id}/cancel", response_model=TaskOut)
+    def cancel_task(
+        task_id: str,
+        auth: AgentAuth = Depends(require_agent),
+    ) -> dict[str, Any]:
+        task = service.cancel_task(
+            auth.session,
+            auth.world,
+            task_id,
+            actor=auth.agent,
+        )
+        return service.task_view(auth.session, task)
 
     return app
 

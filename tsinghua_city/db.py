@@ -54,4 +54,17 @@ def make_session_factory(engine: Engine) -> sessionmaker[Session]:
 
 
 def init_db(engine: Engine) -> None:
+    """Create tables directly; used by tests and disposable local setups."""
     Base.metadata.create_all(engine)
+
+
+def upgrade_database(url: str) -> None:
+    """Apply Alembic migrations to the configured database."""
+    from alembic import command
+    from alembic.config import Config
+
+    root = Path(__file__).resolve().parent.parent
+    config = Config(str(root / "alembic.ini"))
+    config.set_main_option("script_location", str(root / "migrations"))
+    config.set_main_option("sqlalchemy.url", url)
+    command.upgrade(config, "head")

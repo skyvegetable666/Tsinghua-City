@@ -136,6 +136,89 @@ def list_agents() -> list[dict[str, Any]]:
     return _request("GET", "/v1/me/agents")
 
 
+
+
+@mcp.tool()
+def list_tasks(status: str | None = None, limit: int = 100) -> list[dict[str, Any]]:
+    """List the public task board.
+
+    Args:
+        status: Optional OPEN / CLAIMED / SUBMITTED / COMPLETED / CANCELLED / FAILED filter.
+        limit: Maximum number of tasks (1-500).
+    """
+    suffix = f"?limit={int(limit)}"
+    if status:
+        suffix += "&status=" + status.upper()
+    return _request("GET", "/v1/me/tasks" + suffix)
+
+
+@mcp.tool()
+def get_task(task_id: str) -> dict[str, Any]:
+    """Read one task by id."""
+    return _request("GET", "/v1/me/tasks/" + task_id)
+
+
+@mcp.tool()
+def publish_task(
+    title: str,
+    description: str,
+    acceptance_criteria: str,
+    reward: int,
+    deadline_seconds: int | None = None,
+) -> dict[str, Any]:
+    """Publish a task and escrow its reward.
+
+    Args:
+        title: Short task title.
+        description: What needs to be done.
+        acceptance_criteria: What must be true for acceptance.
+        reward: Credits reserved from your balance.
+        deadline_seconds: Optional deadline relative to now.
+    """
+    body: dict[str, Any] = {
+        "title": title,
+        "description": description,
+        "acceptance_criteria": acceptance_criteria,
+        "reward": reward,
+    }
+    if deadline_seconds is not None:
+        body["deadline_seconds"] = deadline_seconds
+    return _request("POST", "/v1/me/tasks", body)
+
+
+@mcp.tool()
+def claim_task(task_id: str) -> dict[str, Any]:
+    """Claim an open task."""
+    return _request("POST", f"/v1/me/tasks/{task_id}/claim")
+
+
+@mcp.tool()
+def submit_task(task_id: str, submission: str) -> dict[str, Any]:
+    """Submit work for a task you currently hold."""
+    return _request("POST", f"/v1/me/tasks/{task_id}/submit", {"submission": submission})
+
+
+@mcp.tool()
+def accept_task(task_id: str) -> dict[str, Any]:
+    """Accept a submitted task you published, releasing its escrow."""
+    return _request("POST", f"/v1/me/tasks/{task_id}/accept")
+
+
+@mcp.tool()
+def reject_task(task_id: str, reason: str | None = None) -> dict[str, Any]:
+    """Reject a submission and reopen your task."""
+    body: dict[str, Any] = {}
+    if reason:
+        body["reason"] = reason
+    return _request("POST", f"/v1/me/tasks/{task_id}/reject", body)
+
+
+@mcp.tool()
+def cancel_task(task_id: str) -> dict[str, Any]:
+    """Cancel one of your open tasks and refund its escrow."""
+    return _request("POST", f"/v1/me/tasks/{task_id}/cancel")
+
+
 def main() -> None:
     mcp.run()
 

@@ -18,7 +18,16 @@ from sqlalchemy.orm import Session
 
 from .auth import generate_agent_token, token_hash
 from .config import iso, utcnow
-from .models import Account, Agent, Event, LedgerEntry, LedgerTransaction, Message, World
+from .models import (
+    Account,
+    Agent,
+    Event,
+    LedgerEntry,
+    LedgerTransaction,
+    Message,
+    Task,
+    World,
+)
 from .schemas import WorldConfig
 
 AGENT_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
@@ -153,6 +162,15 @@ def _system_account(session: Session, world_id: str) -> Account:
     return account
 
 
+def _escrow_account(session: Session, world_id: str) -> Account:
+    account = session.scalars(
+        select(Account).where(Account.world_id == world_id, Account.kind == "escrow")
+    ).one_or_none()
+    if account is None:
+        raise DomainError("escrow account missing for world", 500)
+    return account
+
+
 def _agent_account(session: Session, agent: Agent) -> Account:
     account = session.scalars(
         select(Account).where(Account.world_id == agent.world_id, Account.agent_id == agent.id)
@@ -186,14 +204,23 @@ def create_world(session: Session, name: str, config: WorldConfig) -> World:
     # There are no ORM relationships, so make the FK order explicit: insert the
     # world before its system account and event.
     session.flush()
-    session.add(
-        Account(
-            id=_id("ac_"),
-            world_id=world.id,
-            agent_id=None,
-            kind="system",
-            balance=0,
-        )
+    session.add_all(
+        [
+            Account(
+                id=_id("ac_"),
+                world_id=world.id,
+                agent_id=None,
+                kind="system",
+                balance=0,
+            ),
+            Account(
+                id=_id("ac_"),
+                world_id=world.id,
+                agent_id=None,
+                kind="escrow",
+                balance=0,
+            ),
+        ]
     )
     _emit(session, world.id, "world.created", data={"name": world.name})
     session.commit()
@@ -673,6 +700,470 @@ def message_view(session: Session, message: Message) -> dict[str, Any]:
         "created_at": iso(message.created_at),
         "read_at": iso(message.read_at),
     }
+
+
+# ---------------------------------------------------------------- task board
+
+TASK_OPEN = "OPEN"
+TASK_CLAIMED = "CLAIMED"
+TASK_SUBMITTED = "SUBMITTED"
+TASK_COMPLETED = "COMPLETED"
+TASK_CANCELLED = "CANCELLED"
+TASK_FAILED = "FAILED"
+
+
+def _get_task(
+    session: Session,
+    world: World,
+    task_id: str,
+    *,
+    lock: bool = False,
+) -> Task:
+    query = select(Task).where(Task.id == task_id, Task.world_id == world.id)
+    if lock:
+        query = query.with_for_update()
+    task = session.scalars(query).one_or_none()
+    if task is None:
+        raise DomainError("task not found", 404)
+    return task
+
+
+def _validate_task_fields(
+    title: str,
+    description: str,
+    acceptance_criteria: str,
+    reward: int,
+    deadline_seconds: int | None,
+) -> tuple[str, str, str, int | None]:
+    title = title.strip()
+    description = description.strip()
+    acceptance_criteria = acceptance_criteria.strip()
+    if not title or len(title) > 200:
+        raise DomainError("task title must be 1-200 characters", 400)
+    if not description:
+        raise DomainError("task description must not be empty", 400)
+    if not acceptance_criteria:
+        raise DomainError("task acceptance_criteria must not be empty", 400)
+    if reward <= 0:
+        raise DomainError("task reward must be positive", 400)
+    if deadline_seconds is not None and deadline_seconds <= 0:
+        raise DomainError("deadline_seconds must be positive", 400)
+    return title, description, acceptance_criteria, deadline_seconds
+
+
+def _authorize_task_manager(
+    session: Session,
+    world: World,
+    task: Task,
+    actor: Agent | None,
+    *,
+    is_admin: bool,
+) -> None:
+    if is_admin:
+        return
+    if task.publisher_agent_id is None:
+        raise DomainError("external task can only be managed by an admin", 403)
+    if actor is None or actor.id != task.publisher_agent_id:
+        raise DomainError("only the publisher can manage this task", 403)
+    require_alive(session, actor, world)
+
+
+def _task_funder_account(session: Session, task: Task) -> Account:
+    if task.publisher_agent_id is None:
+        return _system_account(session, task.world_id)
+    publisher = session.get(Agent, task.publisher_agent_id)
+    if publisher is None:
+        raise DomainError("task publisher no longer exists", 500)
+    return _agent_account(session, publisher)
+
+
+def _task_view(session: Session, task: Task) -> dict[str, Any]:
+    publisher = session.get(Agent, task.publisher_agent_id) if task.publisher_agent_id else None
+    assignee = session.get(Agent, task.assignee_agent_id) if task.assignee_agent_id else None
+    return {
+        "id": task.id,
+        "world_id": task.world_id,
+        "source": task.source,
+        "publisher": publisher.name if publisher else "external",
+        "assignee": assignee.name if assignee else None,
+        "title": task.title,
+        "description": task.description,
+        "acceptance_criteria": task.acceptance_criteria,
+        "reward": task.reward,
+        "status": task.status,
+        "deadline_at": iso(task.deadline_at),
+        "submission": task.submission,
+        "created_at": iso(task.created_at),
+        "claimed_at": iso(task.claimed_at),
+        "submitted_at": iso(task.submitted_at),
+        "completed_at": iso(task.completed_at),
+        "closed_at": iso(task.closed_at),
+    }
+
+
+def _create_task(
+    session: Session,
+    world: World,
+    *,
+    publisher: Agent | None,
+    source: str,
+    title: str,
+    description: str,
+    acceptance_criteria: str,
+    reward: int,
+    deadline_seconds: int | None,
+) -> Task:
+    title, description, acceptance_criteria, deadline_seconds = _validate_task_fields(
+        title, description, acceptance_criteria, reward, deadline_seconds
+    )
+    now = utcnow()
+    task = Task(
+        id=_id("task_"),
+        world_id=world.id,
+        publisher_agent_id=publisher.id if publisher else None,
+        assignee_agent_id=None,
+        source=source,
+        title=title,
+        description=description,
+        acceptance_criteria=acceptance_criteria,
+        reward=reward,
+        status=TASK_OPEN,
+        deadline_at=now + float(deadline_seconds) if deadline_seconds else None,
+        submission=None,
+        created_at=now,
+    )
+    session.add(task)
+    session.flush()
+
+    if publisher is None:
+        debit = _system_account(session, world.id)
+        kind = "external_task_escrow"
+        actor_id = None
+    else:
+        debit = _agent_account(session, publisher)
+        kind = "task_escrow"
+        actor_id = publisher.id
+    escrow = _escrow_account(session, world.id)
+    locked = _locked_accounts(session, debit.id, escrow.id)
+    debit, escrow = locked[debit.id], locked[escrow.id]
+    tx = _post_transfer(
+        session,
+        world,
+        debit=debit,
+        credit=escrow,
+        amount=reward,
+        kind=kind,
+        actor_agent_id=actor_id,
+        data={"task_id": task.id, "title": title, "reward": reward},
+    )
+    _emit(
+        session,
+        world.id,
+        "task.published",
+        actor_agent_id=actor_id,
+        data={
+            "task_id": task.id,
+            "title": title,
+            "reward": reward,
+            "source": source,
+            "transaction_id": tx.id,
+        },
+    )
+    session.commit()
+    session.refresh(task)
+    return task
+
+
+def publish_task(
+    session: Session,
+    world: World,
+    agent: Agent,
+    *,
+    title: str,
+    description: str,
+    acceptance_criteria: str,
+    reward: int,
+    deadline_seconds: int | None = None,
+) -> Task:
+    require_alive(session, agent, world)
+    return _create_task(
+        session,
+        world,
+        publisher=agent,
+        source="agent",
+        title=title,
+        description=description,
+        acceptance_criteria=acceptance_criteria,
+        reward=reward,
+        deadline_seconds=deadline_seconds,
+    )
+
+
+def publish_external_task(
+    session: Session,
+    world: World,
+    *,
+    title: str,
+    description: str,
+    acceptance_criteria: str,
+    reward: int,
+    deadline_seconds: int | None = None,
+) -> Task:
+    return _create_task(
+        session,
+        world,
+        publisher=None,
+        source="external",
+        title=title,
+        description=description,
+        acceptance_criteria=acceptance_criteria,
+        reward=reward,
+        deadline_seconds=deadline_seconds,
+    )
+
+
+def task_view(session: Session, task: Task) -> dict[str, Any]:
+    return _task_view(session, task)
+
+
+def get_task(session: Session, world: World, task_id: str) -> Task:
+    return _get_task(session, world, task_id)
+
+
+def list_tasks(
+    session: Session,
+    world: World,
+    *,
+    status: str | None = None,
+    limit: int = 200,
+) -> list[Task]:
+    limit = max(1, min(int(limit), 500))
+    query = select(Task).where(Task.world_id == world.id)
+    if status:
+        query = query.where(Task.status == status.upper())
+    query = query.order_by(Task.created_at.desc()).limit(limit)
+    return list(session.scalars(query).all())
+
+
+def claim_task(session: Session, world: World, agent: Agent, task_id: str) -> Task:
+    require_alive(session, agent, world)
+    task = _get_task(session, world, task_id, lock=True)
+    if task.status != TASK_OPEN:
+        raise DomainError(f"task is not open ({task.status})", 409)
+    if task.publisher_agent_id == agent.id:
+        raise DomainError("cannot claim your own task", 409)
+    if task.deadline_at is not None and task.deadline_at <= utcnow():
+        raise DomainError("task deadline has passed", 409)
+    task.assignee_agent_id = agent.id
+    task.status = TASK_CLAIMED
+    task.claimed_at = utcnow()
+    _emit(
+        session,
+        world.id,
+        "task.claimed",
+        actor_agent_id=agent.id,
+        data={"task_id": task.id, "title": task.title},
+    )
+    session.commit()
+    session.refresh(task)
+    return task
+
+
+def submit_task(session: Session, world: World, agent: Agent, task_id: str, submission: str) -> Task:
+    require_alive(session, agent, world)
+    task = _get_task(session, world, task_id, lock=True)
+    if task.status != TASK_CLAIMED or task.assignee_agent_id != agent.id:
+        raise DomainError("only the current assignee can submit a claimed task", 409)
+    if task.deadline_at is not None and task.deadline_at <= utcnow():
+        raise DomainError("task deadline has passed", 409)
+    submission = submission.strip()
+    if not submission:
+        raise DomainError("submission must not be empty", 400)
+    task.submission = submission
+    task.status = TASK_SUBMITTED
+    task.submitted_at = utcnow()
+    _emit(
+        session,
+        world.id,
+        "task.submitted",
+        actor_agent_id=agent.id,
+        data={"task_id": task.id, "title": task.title},
+    )
+    session.commit()
+    session.refresh(task)
+    return task
+
+
+def accept_task(
+    session: Session,
+    world: World,
+    task_id: str,
+    *,
+    actor: Agent | None = None,
+    is_admin: bool = False,
+) -> Task:
+    task = _get_task(session, world, task_id, lock=True)
+    _authorize_task_manager(session, world, task, actor, is_admin=is_admin)
+    if task.status != TASK_SUBMITTED:
+        raise DomainError(f"task is not awaiting acceptance ({task.status})", 409)
+    if task.assignee_agent_id is None:
+        raise DomainError("task has no assignee", 500)
+    assignee = session.get(Agent, task.assignee_agent_id)
+    if assignee is None:
+        raise DomainError("task assignee no longer exists", 500)
+    if not refresh_alive(session, assignee, world):
+        raise DomainError("assignee is dead; use reject/cancel instead", 409)
+    escrow = _escrow_account(session, world.id)
+    credit = _agent_account(session, assignee)
+    locked = _locked_accounts(session, escrow.id, credit.id)
+    escrow, credit = locked[escrow.id], locked[credit.id]
+    if escrow.balance < task.reward:
+        raise DomainError("escrow does not hold the task reward", 409)
+    tx = _post_transfer(
+        session,
+        world,
+        debit=escrow,
+        credit=credit,
+        amount=task.reward,
+        kind="task_settlement",
+        actor_agent_id=actor.id if actor else None,
+        counterparty_agent_id=assignee.id,
+        data={"task_id": task.id, "assignee": assignee.name},
+    )
+    task.status = TASK_COMPLETED
+    task.completed_at = utcnow()
+    task.closed_at = task.completed_at
+    _emit(
+        session,
+        world.id,
+        "task.completed",
+        actor_agent_id=actor.id if actor else None,
+        data={"task_id": task.id, "assignee": assignee.name, "transaction_id": tx.id},
+    )
+    session.commit()
+    session.refresh(task)
+    return task
+
+
+def reject_task(
+    session: Session,
+    world: World,
+    task_id: str,
+    *,
+    actor: Agent | None = None,
+    is_admin: bool = False,
+    reason: str | None = None,
+) -> Task:
+    task = _get_task(session, world, task_id, lock=True)
+    _authorize_task_manager(session, world, task, actor, is_admin=is_admin)
+    if task.status != TASK_SUBMITTED:
+        raise DomainError(f"task is not awaiting acceptance ({task.status})", 409)
+    task.status = TASK_OPEN
+    task.assignee_agent_id = None
+    task.submission = None
+    task.claimed_at = None
+    task.submitted_at = None
+    _emit(
+        session,
+        world.id,
+        "task.reopened",
+        actor_agent_id=actor.id if actor else None,
+        data={"task_id": task.id, "reason": (reason or "").strip()},
+    )
+    session.commit()
+    session.refresh(task)
+    return task
+
+
+def cancel_task(
+    session: Session,
+    world: World,
+    task_id: str,
+    *,
+    actor: Agent | None = None,
+    is_admin: bool = False,
+) -> Task:
+    task = _get_task(session, world, task_id, lock=True)
+    _authorize_task_manager(session, world, task, actor, is_admin=is_admin)
+    if task.status != TASK_OPEN:
+        raise DomainError("only an open task can be cancelled", 409)
+    escrow = _escrow_account(session, world.id)
+    funder = _task_funder_account(session, task)
+    locked = _locked_accounts(session, escrow.id, funder.id)
+    escrow, funder = locked[escrow.id], locked[funder.id]
+    if escrow.balance < task.reward:
+        raise DomainError("escrow does not hold the task reward", 409)
+    tx = _post_transfer(
+        session,
+        world,
+        debit=escrow,
+        credit=funder,
+        amount=task.reward,
+        kind="task_refund",
+        actor_agent_id=actor.id if actor else None,
+        data={"task_id": task.id},
+    )
+    task.status = TASK_CANCELLED
+    task.closed_at = utcnow()
+    _emit(
+        session,
+        world.id,
+        "task.cancelled",
+        actor_agent_id=actor.id if actor else None,
+        data={"task_id": task.id, "transaction_id": tx.id},
+    )
+    session.commit()
+    session.refresh(task)
+    return task
+
+
+def expire_tasks(session: Session, world: World) -> int:
+    now = utcnow()
+    tasks = session.scalars(
+        select(Task)
+        .where(
+            Task.world_id == world.id,
+            Task.status.in_([TASK_OPEN, TASK_CLAIMED]),
+            Task.deadline_at.is_not(None),
+            Task.deadline_at <= now,
+        )
+        .with_for_update()
+    ).all()
+    count = 0
+    escrow = _escrow_account(session, world.id)
+    for task in tasks:
+        funder = _task_funder_account(session, task)
+        locked = _locked_accounts(session, escrow.id, funder.id)
+        escrow_locked, funder_locked = locked[escrow.id], locked[funder.id]
+        if escrow_locked.balance < task.reward:
+            continue
+        tx = _post_transfer(
+            session,
+            world,
+            debit=escrow_locked,
+            credit=funder_locked,
+            amount=task.reward,
+            kind="task_refund",
+            actor_agent_id=None,
+            data={"task_id": task.id, "expired": True},
+        )
+        task.status = TASK_CANCELLED if task.status == TASK_OPEN else TASK_FAILED
+        task.closed_at = now
+        _emit(
+            session,
+            world.id,
+            "task.expired",
+            data={
+                "task_id": task.id,
+                "status": task.status,
+                "transaction_id": tx.id,
+            },
+        )
+        count += 1
+    if count:
+        session.commit()
+    return count
+
 
 
 def reap_expired(session: Session, world: World) -> int:

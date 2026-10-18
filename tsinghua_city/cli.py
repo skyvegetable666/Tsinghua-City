@@ -9,15 +9,15 @@ from sqlalchemy import select
 
 from . import service
 from .config import load_settings
-from .db import init_db, make_engine, make_session_factory
+from .db import make_engine, make_session_factory, upgrade_database
 from .models import World
 from .schemas import WorldConfig
 
 
 def _database():
     settings = load_settings()
+    upgrade_database(settings.database_url)
     engine = make_engine(settings.database_url)
-    init_db(engine)
     return settings, engine, make_session_factory(engine)
 
 
@@ -35,6 +35,7 @@ def cmd_serve(args: argparse.Namespace) -> int:
     import uvicorn
 
     settings = load_settings()
+    upgrade_database(settings.database_url)
     host = args.host or settings.host
     port = args.port or settings.port
     uvicorn.run(
@@ -43,6 +44,13 @@ def cmd_serve(args: argparse.Namespace) -> int:
         port=port,
         log_level=settings.log_level,
     )
+    return 0
+
+
+def cmd_upgrade(_args: argparse.Namespace) -> int:
+    settings = load_settings()
+    upgrade_database(settings.database_url)
+    print(f"database upgraded: {settings.database_url}")
     return 0
 
 
@@ -102,8 +110,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="tsinghua-city")
     sub = parser.add_subparsers(dest="command", required=True)
 
-    init = sub.add_parser("init", help="create the database tables")
+    init = sub.add_parser("init", help="apply database migrations")
     init.set_defaults(func=cmd_init)
+
+    upgrade = sub.add_parser("upgrade", help="apply database migrations")
+    upgrade.set_defaults(func=cmd_upgrade)
 
     serve = sub.add_parser("serve", help="run the world API")
     serve.add_argument("--host", default=None)

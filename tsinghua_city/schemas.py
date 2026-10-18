@@ -91,6 +91,42 @@ class MarkReadRequest(BaseModel):
     message_ids: list[str] = Field(min_length=1)
 
 
+class TaskCreate(BaseModel):
+    title: str = Field(min_length=1, max_length=200)
+    description: str = Field(min_length=1)
+    acceptance_criteria: str = Field(min_length=1)
+    reward: int = Field(gt=0)
+    deadline_seconds: int | None = Field(default=None, gt=0)
+
+
+class TaskSubmit(BaseModel):
+    submission: str = Field(min_length=1)
+
+
+class TaskReject(BaseModel):
+    reason: str | None = Field(default=None, max_length=500)
+
+
+class TaskOut(BaseModel):
+    id: str
+    world_id: str
+    source: str
+    publisher: str
+    assignee: str | None
+    title: str
+    description: str
+    acceptance_criteria: str
+    reward: int
+    status: str
+    deadline_at: str | None
+    submission: str | None
+    created_at: str
+    claimed_at: str | None
+    submitted_at: str | None
+    completed_at: str | None
+    closed_at: str | None
+
+
 class EventOut(BaseModel):
     id: str
     event_type: str

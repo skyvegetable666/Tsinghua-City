@@ -16,7 +16,9 @@ Three planes sit around the state core:
 | Observation | traces, metrics, dashboards, event exploration | **No; export to mature tooling** |
 | Control surface | World API, SDK, Canvas | **Yes for the domain API, no for generic UI/runtime** |
 
-## 2. What Phase 1 implements
+## 2. What is implemented
+
+Phase 1:
 
 - SQLAlchemy models for worlds, agents, accounts, double-entry ledger transactions/entries, messages, events.
 - Service layer with authoritative operations.
@@ -26,20 +28,30 @@ Three planes sit around the state core:
 - Persistent direct messages and read receipts.
 - Idempotency keys for transfer/life/message retries, backed by uniqueness constraints.
 - MCP server (FastMCP) as a stateless API client; real stdio handshake test.
-- CLI: init, serve, create-world, create-agent, mcp.
-- Integration tests on SQLite, with optional Postgres test URL.
+- CLI: init, upgrade, serve, create-world, create-agent, mcp.
+- Integration tests on SQLite, with an optional Postgres URL.
 
-Phase 1 deliberately does **not** include tasks, public board, runtime manager, Web Canvas, or memory.
+Phase 2 core (task board):
+
+- Agent-published tasks with reward escrow.
+- External tasks published by an admin and funded from the system account.
+- `OPEN -> CLAIMED -> SUBMITTED -> COMPLETED`, with reject-to-open, cancel/refund, and deadline expiry/refund.
+- Public task listing/detail and MCP task tools.
+- Alembic baseline; `tsinghua-city init`/`upgrade` apply migrations.
+
+Not yet: public bulletin board, runtime manager, Web Canvas, memory,
+experiment manifests, named external-employer budgets, automatic deadline
+scheduler, group messaging.
 
 ## 3. Build vs reuse
 
 | Component | Phase 1 | Target | Why |
 | --- | --- | --- | --- |
 | HTTP API | FastAPI | FastAPI | mature, simple |
-| ORM / DB | SQLAlchemy + SQLite | Postgres + Alembic | authoritative transactional state |
+| ORM / DB | SQLAlchemy + SQLite/Alembic | Postgres + Alembic | authoritative transactional state |
 | MCP | official MCP/FastMCP | same | do not invent a world protocol |
 | Messaging | DB-backed inbox | durable queue + DB | storage/ack first; transport later |
-| Scheduling | manual `reap` | Temporal or Postgres scheduler | death/wake deadlines need durable timers |
+| Scheduling | manual `reap` / task expiry trigger | Temporal or Postgres scheduler | death/wake/deadline timers need durability |
 | Runtime/sandbox | none | OpenHands SDK/Agent Server, E2B, Docker/K8s | not our differentiation |
 | Agent harness | none | Claude Code / OpenHands / custom adapter | replaceable |
 | Observability | event table | OpenTelemetry + Prometheus/Grafana or Langfuse/Phoenix | research events stay domain-specific; tooling reuses |
@@ -81,21 +93,21 @@ Phase 1 deliberately does **not** include tasks, public board, runtime manager, 
 
 ## 7. Migration phases
 
-### Phase 1.1: hardening before tasks
+### Phase 1.1: hardening (done)
 
 - ~~Real MCP stdio protocol test~~ (done).
-- Concurrency tests for double-spend and idempotent retry on Postgres.
-- Crash/restart persistence test.
-- Alembic baseline.
+- ~~Alembic baseline~~ (done).
+- ~~Postgres concurrency test harness~~ (added; skipped without a Postgres URL).
+- Crash/restart persistence test (deferred).
 
-### Phase 2: society mechanisms
+### Phase 2: society mechanisms (core done)
 
-- Task board:
-  - `OPEN -> CLAIMED -> SUBMITTED -> COMPLETED`
-  - reward reservation at publication, settlement only after acceptance.
-- Public board.
+- ~~Task board: `OPEN -> CLAIMED -> SUBMITTED -> COMPLETED`; reward escrow; settlement on acceptance.~~ (done)
+- ~~Reject/reopen, cancel/refund, deadline expiry.~~ (done)
+- ~~External admin-published tasks.~~ (done, using the system account)
+- Public bulletin board (next).
 - Inbox delivery/wake notification.
-- Alembic migrations.
+- Named external-employer budgets.
 - Experiment config/manifest.
 - OTel event export.
 
