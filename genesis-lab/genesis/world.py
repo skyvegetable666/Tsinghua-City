@@ -328,7 +328,7 @@ class World:
                 stderr=subprocess.STDOUT,
             )
             startup_timeout = float(timeout if timeout is not None else self.spec.startup_timeout)
-            self._current = self._wait_for_current(root, startup_timeout)
+            self._current = self._wait_for_current(root, startup_timeout, port)
             self._token = str(self._current.get("token") or "")
             self._run_dir = Path(str(self._current.get("run_dir") or ""))
             self._base_url = f"http://127.0.0.1:{int(self._current.get('port'))}"
@@ -343,7 +343,7 @@ class World:
         self._stopped = False
         return self
 
-    def _wait_for_current(self, root: Path, timeout: float) -> dict[str, Any]:
+    def _wait_for_current(self, root: Path, timeout: float, port: int) -> dict[str, Any]:
         path = root / "runs" / "current.json"
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
@@ -353,7 +353,13 @@ class World:
                 data = json.loads(path.read_text(encoding="utf-8"))
             except (OSError, json.JSONDecodeError):
                 data = None
-            if data and self._proc is not None and int(data.get("pid") or -1) == self._proc.pid:
+            # Match on the broker port we assigned, not only on the child pid:
+            # on Windows a venv python.exe is a launcher that re-spawns the real
+            # interpreter, so Popen.pid never equals the supervisor's os.getpid().
+            matched = data is not None and int(data.get("port") or -1) == int(port)
+            if not matched and data and self._proc is not None:
+                matched = int(data.get("pid") or -1) == self._proc.pid
+            if matched:
                 return data
             time.sleep(0.2)
         raise WorldError(self._startup_failure(f"timed out after {timeout:.0f}s waiting for supervisor"))
