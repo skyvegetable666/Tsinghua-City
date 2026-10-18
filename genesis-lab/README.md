@@ -29,6 +29,18 @@
 
 当前不是 N-agent 框架。要把自定义 agent 接进来，最稳的接口是 broker 的 HTTP/SSE 协议；要新增第三个 agent，需要改控制面和 compose 编排，清单在 [EXTENDING.md](EXTENDING.md)。
 
+### 0.1 架构定位：MCP 在边缘，不是消息总线
+
+这个项目不是“一个中心化的 MCP server”。准确分层是：
+
+1. **工具层（每个容器本地）**：Claude Code 拉起一个 stdio MCP server，只暴露 `agent_chat`。它把一次 tool call 变成容器内 bridge 的一次本地 HTTP 请求。
+2. **传输/路由层（宿主机）**：bridge → 宿主机 Python broker（HTTP + SSE）。消息排队、id/seq、重试幂等、投递回执、presence、创世、结束和观测都在这里；MCP 不参与。
+3. **投递层（每个容器）**：B 的 bridge 在安全点把消息交给 B 的模型（工具边界 hook / idle 新回合），并决定何时 ack。
+
+所以：**MCP 只是 agent 侧的工具适配器；跨 agent 的“把消息转交给另一个并观测”是 broker + bridge 完成的。** 类比网络：MCP 是 socket API，broker 是路由/队列，hook/idle 是投递时机，events/transcript/metrics 是监控。
+
+“监控”在这里是**实验观测 + 控制**，不是被动抓包：broker 记录每条消息和投递回执，bridge 上报 turn/tool/usage，supervisor 还负责创世、presence、系统通知和结束。
+
 ---
 
 ## 1. 它到底怎么跑
