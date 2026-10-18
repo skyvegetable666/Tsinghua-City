@@ -390,6 +390,7 @@ class World:
                 data is not None
                 and self._proc is not None
                 and int(data.get("pid") or -1) == self._proc.pid
+                and (previous_run_id is None or run_id != previous_run_id)
             )
             if matched_port or matched_pid:
                 return data

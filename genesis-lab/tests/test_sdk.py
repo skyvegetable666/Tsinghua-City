@@ -195,6 +195,19 @@ def test_wait_for_current_rejects_stale_port(tmp_path: Path) -> None:
         world._wait_for_current(tmp_path, 0.25, 43210, previous_run_id="old")
 
 
+def test_wait_for_current_rejects_stale_pid_reuse(tmp_path: Path) -> None:
+    runs = tmp_path / "runs"
+    runs.mkdir()
+    (runs / "current.json").write_text(
+        json.dumps({"run_id": "old", "port": 1, "pid": 123, "token": "t"}),
+        encoding="utf-8",
+    )
+    world = World.create(agents=["a", "b"])
+    world._proc = SimpleNamespace(pid=123, poll=lambda: None)  # type: ignore[assignment]
+    with pytest.raises(WorldError, match="timed out"):
+        world._wait_for_current(tmp_path, 0.25, 43210, previous_run_id="old")
+
+
 def test_spec_validation() -> None:
     with pytest.raises(ValueError, match="broker_port"):
         WorldSpec(broker_port=70000)

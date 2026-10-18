@@ -80,7 +80,7 @@
 
 | 能力 | 状态 | 说明 |
 | --- | --- | --- |
-| 单元/集成测试 | ✅ | 55 passed, 2 skipped（最近一次） |
+| 单元/集成测试 | ✅ | 56 passed, 2 skipped（最近一次） |
 | 真实 Claude CLI 集成测试 | ✅ | 2 passed，用 mock LLM，不需要真实 key |
 | mock LLM | ✅ | 支持 streaming / 非 streaming、demo / tool_then_end |
 | repo hygiene 脚本 | ✅ | 检查 tracked 文件中的 key、私钥、runs、日志 |
