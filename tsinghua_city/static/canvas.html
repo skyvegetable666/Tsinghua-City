@@ -26,7 +26,9 @@
                      border:1px solid var(--border); border-radius:6px; padding:7px; font-size:11px; }
   #newworldbtn { width:31px; background:var(--panel2); color:var(--dim); border:1px solid var(--border);
                  border-radius:6px; }
-  #agents { flex:1; overflow-y:auto; padding:4px 8px; }
+  #agentcount { padding:9px 14px 3px; color:var(--faint); font-size:10px;
+                text-transform:uppercase; letter-spacing:.08em; }
+  #agents { flex:1; overflow-y:auto; padding:0 8px 4px; }
   .agent { padding:8px 10px; border-radius:6px; cursor:pointer; margin-bottom:2px; }
   .agent:hover { background:var(--panel2); }
   .agent.active { background:var(--panel2); outline:1px solid var(--border); }
@@ -59,7 +61,14 @@
   #headbar { display:flex; justify-content:flex-end; align-items:center; padding:6px 16px;
              gap:14px; font-size:12px; color:var(--dim); min-height:31px; }
   #headbar .spacer { flex:1; }
-  #headbar #title { color:var(--faint); }
+  #headbar #title { color:var(--faint); font-size:11.5px; }
+  #livestate { display:flex; align-items:center; gap:6px; }
+  #live-dot { width:6px; height:6px; border-radius:50%; background:var(--ok); display:inline-block;
+              animation:pulse 2.2s ease-in-out infinite; }
+  #worldstatus { color:var(--dim); }
+  @keyframes pulse { 0%,100% { opacity:.45; } 50% { opacity:1; } }
+  .section-label { color:var(--faint); font-size:10.5px; text-transform:uppercase;
+                   letter-spacing:.09em; margin:2px 0 9px 4px; }
   #refreshbtn { background:transparent; color:var(--dim); border:1px solid var(--border); border-radius:5px; padding:4px 9px; font-size:11px; }
   #view { flex:1; overflow-y:auto; padding:10px 22px 70px; }
   .statusline { color:var(--faint); font-size:11.5px; margin:4px 0 10px 4px; }
@@ -70,7 +79,7 @@
              border-bottom:1px solid var(--border); background:var(--panel2); color:var(--dim);
              display:flex; justify-content:space-between; gap:10px; }
   .msg .hd .kind { color:var(--accent); }
-  .msg .bd { padding:8px 12px; white-space:pre-wrap; word-wrap:break-word; font-size:12.5px; color:var(--text); }
+  .msg .bd { padding:9px 12px; white-space:pre-wrap; word-wrap:break-word; font-size:12.5px; color:var(--text); }
   .msg .bd .actor { color:var(--user); }
   .msg.runtime .hd .kind { color:var(--ok); }
   .msg.task .hd .kind { color:var(--user); }
@@ -79,9 +88,9 @@
   .msg.bad .hd .kind { color:var(--warn); }
   .cards3 { display:grid; grid-template-columns:repeat(4,1fr); gap:8px; margin:0 0 14px; }
   @media (max-width:1000px) { .cards3 { grid-template-columns:repeat(2,1fr); } }
-  .stat { background:var(--panel); border:1px solid var(--border); border-radius:8px; padding:9px 11px; }
+  .stat { background:var(--panel); border:1px solid var(--border); border-radius:8px; padding:10px 12px; }
   .stat .label { color:var(--faint); font-size:10.5px; text-transform:uppercase; letter-spacing:.06em; }
-  .stat .value { color:var(--text); font-size:17px; margin-top:2px; }
+  .stat .value { color:var(--text); font-size:21px; font-weight:600; margin-top:2px; }
   .stat .value.accent { color:var(--accent); }
   .stat .value.ok { color:var(--ok); }
   .stat .value.warn { color:var(--warn); }
@@ -143,6 +152,7 @@
     <select id="worldSelect" onchange="selectWorld(this.value)"><option value="">select world</option></select>
     <button id="newworldbtn" title="Create world" onclick="openCreateWorld()">+</button>
   </div>
+  <div id="agentcount">agents</div>
   <div id="agents"></div>
   <button id="newagentbtn" onclick="openCreateAgent()">+ New agent</button>
   <div id="railtoken">
@@ -163,7 +173,8 @@
   </div>
   <div id="headbar">
     <span id="title"></span><span class="spacer"></span>
-    <button id="refreshbtn" onclick="refresh()">Refresh</button>
+    <span id="livestate"><span id="live-dot" class="hidden"></span><span id="worldstatus">disconnected</span></span>
+    <button id="refreshbtn" onclick="refresh()">↻ Refresh</button>
   </div>
   <div id="view"></div>
 </main>
@@ -220,6 +231,10 @@
   }
   function showError(text) {
     toast(text, true);
+  }
+  function setLive(label, on) {
+    $('worldstatus').textContent = label;
+    $('live-dot').classList.toggle('hidden', !on);
   }
   function headers(extra) {
     return Object.assign({'Authorization': 'Bearer ' + state.token}, extra || {});
@@ -379,6 +394,7 @@
   }
   function renderRail() {
     var box = $('agents');
+    $('agentcount').textContent = 'agents (' + state.agents.length + ')';
     box.innerHTML = '';
     var runtimeFor = {};
     state.runtimes.forEach(function (r) { runtimeFor[r.agent_id] = r; });
@@ -423,25 +439,27 @@
     var open = state.tasks.filter(function (t) { return t.status === 'OPEN'; }).length;
     var total = state.agents.reduce(function (sum, a) { return sum + (a.balance || 0); }, 0);
     title.textContent = state.world.name + ' · ' + state.agents.length + ' agents · ' + open + ' open tasks';
+    setLive(state.world.name + ' active', true);
     renderTabs();
     if (state.tab === 'overview') {
       view.innerHTML = '<div class="cards3">' +
-        '<div class="stat"><div class="label">agents</div><div class="value">' + state.agents.length + '</div></div>' +
-        '<div class="stat"><div class="label">alive</div><div class="value ok">' + active + '</div></div>' +
-        '<div class="stat"><div class="label">credits in circulation</div><div class="value accent">' + total + '</div></div>' +
+        '<div class="stat"><div class="label">total agents</div><div class="value">' + state.agents.length + '</div></div>' +
+        '<div class="stat"><div class="label">alive ratio</div><div class="value ok">' + active + '/' + state.agents.length + '</div></div>' +
+        '<div class="stat"><div class="label">circulating credits</div><div class="value accent">' + total + '</div></div>' +
         '<div class="stat"><div class="label">open tasks</div><div class="value warn">' + open + '</div></div>' +
-        '</div>' + timelineHtml();
+        '</div><div class="section-label">world event log</div>' + timelineHtml();
     } else if (state.tab === 'agent') {
-      view.innerHTML = agentHtml(runtimeFor);
+      view.innerHTML = '<div class="section-label">agent profile</div>' + agentHtml(runtimeFor);
     } else if (state.tab === 'tasks') {
-      view.innerHTML = tasksHtml();
+      view.innerHTML = '<div class="section-label">task board</div>' + tasksHtml();
     } else {
-      view.innerHTML = boardHtml();
+      view.innerHTML = '<div class="section-label">public board</div>' + boardHtml();
     }
   }
   function renderConnect(error) {
     var view = $('view');
     $('title').textContent = 'connect';
+    setLive('disconnected', false);
     if (!state.token) {
       view.innerHTML = '<div class="msg"><div class="hd"><span>operator console</span><span>setup</span></div>' +
         '<div class="bd">Paste the admin token in the left rail and press Connect.\n\n' +
@@ -454,9 +472,36 @@
   function renderNoWorld() {
     var view = $('view');
     $('title').textContent = 'no world';
+    setLive('no world', false);
     view.innerHTML = '<div class="msg"><div class="hd"><span class="kind">empty town</span><span>setup</span></div>' +
       '<div class="bd">You are connected, but there is no world yet.\n\n' +
       'Use <b>+</b> next to the world selector in the left rail to create one.</div></div>';
+  }
+  function eventLabel(type) {
+    var labels = {
+      'agent.created': 'Agent · Created',
+      'agent.died': 'Agent · Died',
+      'credits.transferred': 'System · Transfer',
+      'life.extended': 'System · Life extended',
+      'message.sent': 'Message · Sent',
+      'post.published': 'Board · Published',
+      'post.replied': 'Board · Reply',
+      'runtime.started': 'Runtime · Started',
+      'runtime.restarted': 'Runtime · Restarted',
+      'runtime.stopped': 'Runtime · Stopped',
+      'runtime.suspended': 'Runtime · Suspended',
+      'runtime.resumed': 'Runtime · Resumed',
+      'runtime.crashed': 'Runtime · Crashed',
+      'task.published': 'Task · Published',
+      'task.claimed': 'Task · Claimed',
+      'task.submitted': 'Task · Submitted',
+      'task.completed': 'Task · Completed',
+      'task.reopened': 'Task · Reopened',
+      'task.cancelled': 'Task · Cancelled',
+      'task.expired': 'Task · Expired',
+      'world.created': 'World · Created'
+    };
+    return labels[type] || String(type || 'event').replace(/\./g, ' · ');
   }
   function timelineHtml() {
     if (!state.events.length) return '<div class="statusline">No events recorded yet.</div>';
@@ -465,7 +510,7 @@
       var kind = event.event_type || 'event';
       var cls = kind.indexOf('runtime.') === 0 ? 'runtime' : kind.indexOf('task.') === 0 ? 'task' :
         (kind.indexOf('post.') === 0 || kind === 'world.created') ? 'board' : '';
-      html += '<div class="msg ' + cls + '"><div class="hd"><span class="kind">' + esc(kind) + '</span>' +
+      html += '<div class="msg ' + cls + '"><div class="hd"><span class="kind">' + esc(eventLabel(kind)) + '</span>' +
         '<span>' + esc(event.created_at ? event.created_at.slice(11, 19) : '') + '</span></div>' +
         '<div class="bd"><span class="actor">' + esc(event.actor || 'system') + '</span> · ' +
         esc(eventDetail(event)) + '</div></div>';
