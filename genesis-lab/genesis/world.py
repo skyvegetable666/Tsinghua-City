@@ -320,6 +320,7 @@ class World:
             command = self._build_command()
             self._log_path = self._log_destination(root)
             self._log_handle = self._log_path.open("ab")
+            previous_run_id = self._previous_run_id(root)
             self._proc = subprocess.Popen(
                 command,
                 cwd=str(root),
@@ -328,7 +329,9 @@ class World:
                 stderr=subprocess.STDOUT,
             )
             startup_timeout = float(timeout if timeout is not None else self.spec.startup_timeout)
-            self._current = self._wait_for_current(root, startup_timeout, port)
+            self._current = self._wait_for_current(
+                root, startup_timeout, port, previous_run_id=previous_run_id
+            )
             self._token = str(self._current.get("token") or "")
             self._run_dir = Path(str(self._current.get("run_dir") or ""))
             self._base_url = f"http://127.0.0.1:{int(self._current.get('port'))}"
@@ -343,7 +346,24 @@ class World:
         self._stopped = False
         return self
 
-    def _wait_for_current(self, root: Path, timeout: float, port: int) -> dict[str, Any]:
+    def _previous_run_id(self, root: Path) -> str | None:
+        # A crashed run can leave current.json behind.  A port-only match must
+        # not accept that stale file; remember the old run id before we spawn.
+        try:
+            data = json.loads((root / "runs" / "current.json").read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return None
+        value = str(data.get("run_id") or "").strip() if isinstance(data, dict) else ""
+        return value or None
+
+    def _wait_for_current(
+        self,
+        root: Path,
+        timeout: float,
+        port: int,
+        *,
+        previous_run_id: str | None = None,
+    ) -> dict[str, Any]:
         path = root / "runs" / "current.json"
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
@@ -353,13 +373,25 @@ class World:
                 data = json.loads(path.read_text(encoding="utf-8"))
             except (OSError, json.JSONDecodeError):
                 data = None
+            if not isinstance(data, dict):
+                data = None
             # Match on the broker port we assigned, not only on the child pid:
             # on Windows a venv python.exe is a launcher that re-spawns the real
             # interpreter, so Popen.pid never equals the supervisor's os.getpid().
-            matched = data is not None and int(data.get("port") or -1) == int(port)
-            if not matched and data and self._proc is not None:
-                matched = int(data.get("pid") or -1) == self._proc.pid
-            if matched:
+            # The run-id guard rejects a stale current.json from a crashed run
+            # that happens to use the same explicit port.
+            run_id = str(data.get("run_id") or "") if isinstance(data, dict) else ""
+            matched_port = (
+                data is not None
+                and int(data.get("port") or -1) == int(port)
+                and (previous_run_id is None or run_id != previous_run_id)
+            )
+            matched_pid = (
+                data is not None
+                and self._proc is not None
+                and int(data.get("pid") or -1) == self._proc.pid
+            )
+            if matched_port or matched_pid:
                 return data
             time.sleep(0.2)
         raise WorldError(self._startup_failure(f"timed out after {timeout:.0f}s waiting for supervisor"))

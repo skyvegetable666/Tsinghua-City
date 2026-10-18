@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -164,6 +165,34 @@ def test_spec_is_json_serializable(tmp_path: Path) -> None:
     json.dumps(payload)
     assert payload["project_root"] == str(tmp_path)
     assert payload["log_path"] == str(tmp_path / "log.txt")
+
+
+def test_wait_for_current_accepts_new_port_match(tmp_path: Path) -> None:
+    runs = tmp_path / "runs"
+    runs.mkdir()
+    (runs / "current.json").write_text(
+        json.dumps({"run_id": "new", "port": 43210, "pid": 999, "token": "t"}),
+        encoding="utf-8",
+    )
+    world = World.create(agents=["a", "b"])
+    world._proc = SimpleNamespace(pid=123, poll=lambda: None)  # type: ignore[assignment]
+    data = world._wait_for_current(
+        tmp_path, 0.5, 43210, previous_run_id="old"
+    )
+    assert data["run_id"] == "new"
+
+
+def test_wait_for_current_rejects_stale_port(tmp_path: Path) -> None:
+    runs = tmp_path / "runs"
+    runs.mkdir()
+    (runs / "current.json").write_text(
+        json.dumps({"run_id": "old", "port": 43210, "pid": 999, "token": "t"}),
+        encoding="utf-8",
+    )
+    world = World.create(agents=["a", "b"])
+    world._proc = SimpleNamespace(pid=123, poll=lambda: None)  # type: ignore[assignment]
+    with pytest.raises(WorldError, match="timed out"):
+        world._wait_for_current(tmp_path, 0.25, 43210, previous_run_id="old")
 
 
 def test_spec_validation() -> None:
