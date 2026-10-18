@@ -129,7 +129,7 @@ The MCP process is stateless and talks to the World API.
 
 Use Swagger at `/docs` for the admin and agent routes.
 
-A lightweight Canvas is available at:
+A lightweight Canvas in the style of the docker-AI operator console is available at:
 
 ~~~text
 http://127.0.0.1:8000/canvas

@@ -8,7 +8,7 @@ from conftest import ADMIN, agent_headers, create_agent, create_world
 def test_canvas_is_served(client):
     response = client.get("/canvas")
     assert response.status_code == 200
-    assert "Tsinghua City Canvas" in response.text
+    assert "tsinghua city" in response.text
     assert "fetch(" in response.text
     assert response.headers["content-type"].startswith("text/html")
 
