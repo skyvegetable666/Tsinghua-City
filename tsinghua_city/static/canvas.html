@@ -62,6 +62,11 @@
   <section id="setup" class="panel">
     <h2>Connect</h2>
     <p class="muted">Enter the admin token from CITY_ADMIN_TOKEN. The token stays in this browser's localStorage and is sent only to this local API.</p>
+    <div class="bar" style="margin-top:12px">
+      <input id="worldNameInput" placeholder="world name, e.g. town">
+      <button class="primary" onclick="createWorld()">Create world</button>
+    </div>
+    <p class="muted">No world yet? Create one above, then select it to create agents and inspect the society.</p>
   </section>
 
   <section id="worldPanel" class="panel hidden">
@@ -85,8 +90,7 @@
     </section>
     <section class="panel span-4">
       <h2>World controls</h2>
-      <p class="muted">Create a world or inspect public state. Task creation and runtime commands remain explicit API actions.</p>
-      <div class="bar"><input id="worldNameInput" placeholder="new world name"><button onclick="createWorld()">Create world</button></div>
+      <p class="muted">Task creation and runtime commands remain explicit API actions.</p>
       <div id="runtimes"></div>
     </section>
 
@@ -146,25 +150,39 @@
   }
   async function refreshAll() {
     await refreshWorlds();
-    if (selectedWorld) await loadWorld();
   }
   async function refreshWorlds() {
     try {
       showError('');
       var token = document.getElementById('token').value.trim();
-      if (!token) { document.getElementById('status').textContent = 'admin token required'; return; }
+      if (!token) {
+        document.getElementById('status').textContent = 'admin token required';
+        return;
+      }
       var worlds = await api('/v1/worlds');
       var select = document.getElementById('worldSelect');
       select.innerHTML = '<option value="">Select world</option>';
       worlds.forEach(function(world) {
         var option = document.createElement('option');
-        option.value = world.id; option.textContent = world.name + ' (' + world.id.slice(0, 8) + ')';
-        if (world.id === selectedWorld) option.selected = true;
+        option.value = world.id;
+        option.textContent = world.name + ' (' + world.id.slice(0, 8) + ')';
         select.appendChild(option);
       });
+      if (!worlds.length) {
+        selectedWorld = '';
+        document.getElementById('status').textContent = '0 worlds — create one above';
+        document.getElementById('worldPanel').classList.add('hidden');
+        document.getElementById('worldGrid').classList.add('hidden');
+        return;
+      }
+      if (!worlds.some(function(world) { return world.id === selectedWorld; })) {
+        selectedWorld = worlds[0].id;
+      }
+      select.value = selectedWorld;
       document.getElementById('status').textContent = worlds.length + ' world(s)';
-      if (!selectedWorld && worlds.length) selectWorld(worlds[0].id);
-      if (!worlds.length) { document.getElementById('worldPanel').classList.add('hidden'); document.getElementById('worldGrid').classList.add('hidden'); }
+      await loadWorld();
+      if (timer) clearInterval(timer);
+      timer = setInterval(loadWorld, 3000);
     } catch (err) { showError(err.message); }
   }
   function selectWorld(id) {
@@ -254,6 +272,7 @@
       selectedWorld = world.id;
       document.getElementById('worldNameInput').value = '';
       await refreshWorlds();
+      selectWorld(world.id);
     } catch (err) { showError(err.message); }
   }
   async function createAgent() {
