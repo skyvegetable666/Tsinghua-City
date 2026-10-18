@@ -209,6 +209,33 @@ class PostReply(Base):
     created_at: Mapped[float] = mapped_column(Float, nullable=False)
 
 
+class AgentRuntime(Base):
+    __tablename__ = "agent_runtimes"
+    __table_args__ = (
+        UniqueConstraint("agent_id", name="uq_runtimes_agent"),
+        Index("ix_runtimes_world", "world_id"),
+    )
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    world_id: Mapped[str] = mapped_column(ForeignKey("worlds.id", ondelete="CASCADE"), nullable=False)
+    agent_id: Mapped[str] = mapped_column(
+        ForeignKey("agents.id", ondelete="CASCADE"), nullable=False
+    )
+    adapter: Mapped[str] = mapped_column(String(32), nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False)
+    command: Mapped[list[str]] = mapped_column(JSON, nullable=False)
+    pid: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    pid_create_time: Mapped[float | None] = mapped_column(Float, nullable=True)
+    log_path: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    mcp_config_path: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    exit_code: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[float] = mapped_column(Float, nullable=False)
+    updated_at: Mapped[float] = mapped_column(Float, nullable=False)
+    started_at: Mapped[float | None] = mapped_column(Float, nullable=True)
+    stopped_at: Mapped[float | None] = mapped_column(Float, nullable=True)
+
+
 class Event(Base):
     __tablename__ = "events"
     __table_args__ = (

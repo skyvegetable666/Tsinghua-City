@@ -42,9 +42,18 @@ Phase 2 core (task board + bulletin board):
 - In-process maintenance sweep for task deadlines and agent reaping.
 - Alembic baseline + public-board + task-idempotency revisions; `tsinghua-city init`/`upgrade` apply migrations.
 
-Not yet: durable multi-worker scheduler, runtime manager, Web Canvas, memory,
-experiment manifests, named external-employer budgets, group messaging,
-board moderation/editing.
+Phase 3 core (runtime manager):
+
+- One local subprocess per agent runtime, with persisted runtime record.
+- Admin start/stop/suspend/resume/terminate.
+- Per-runtime log and generated MCP stdio config.
+- Agent token rotation on start/resume; raw token never stored in the DB.
+- Startup/process-loss reconciliation marks lost runtimes crashed.
+
+Not yet: container/sandbox adapter, durable multi-worker scheduler, safe-point
+message delivery, automatic restart policy, Web Canvas, memory, experiment
+manifests, named external-employer budgets, group messaging, board
+moderation/editing.
 
 ## 3. Build vs reuse
 
@@ -55,7 +64,7 @@ board moderation/editing.
 | MCP | official MCP/FastMCP | same | do not invent a world protocol |
 | Messaging | DB-backed inbox | durable queue + DB | storage/ack first; transport later |
 | Scheduling | in-process sweep (`tick`) | Temporal or Postgres scheduler | current sweep is idempotent but not multi-worker/durable |
-| Runtime/sandbox | none | OpenHands SDK/Agent Server, E2B, Docker/K8s | not our differentiation |
+| Runtime/sandbox | local subprocess adapter | OpenHands SDK/Agent Server, E2B, Docker/K8s | local adapter is for harness tests, not isolation |
 | Agent harness | none | Claude Code / OpenHands / custom adapter | replaceable |
 | Observability | event table | OpenTelemetry + Prometheus/Grafana or Langfuse/Phoenix | research events stay domain-specific; tooling reuses |
 | Web UI | none | Canvas-style client over World API | avoid direct DB/CLI coupling |
@@ -116,16 +125,17 @@ board moderation/editing.
 - Experiment config/manifest.
 - OTel event export.
 
-### Phase 3: runtime
+### Phase 3: runtime (local adapter done)
 
 - Adapter interface:
-  - create/start/suspend/resume/terminate agent execution.
-  - start a harness with an MCP config and an agent token.
-  - report process health and exit events.
-- Sandbox provider choice: OpenHands Agent Server, E2B, or Docker/K8s.
+  - ~~create/start/suspend/resume/terminate agent execution.~~ (local done)
+  - ~~start a harness with generated MCP config and an agent token.~~ (done)
+  - ~~report process health and exit events.~~ (reconcile done)
+- Sandbox provider choice: OpenHands Agent Server, E2B, or Docker/K8s (next).
 - Recovery:
-  - process loss must not destroy identity/credits.
-  - restart with the same agent identity.
+  - ~~process loss must not destroy identity/credits.~~ (database identity persists)
+  - ~~restart with the same agent identity.~~ (resume rotates token and starts a new process)
+  - durable restart policy/leases (next).
 - Message delivery:
   - reuse the safe-point policy from the prototype if the harness supports it.
   - otherwise queue until the next model invocation.

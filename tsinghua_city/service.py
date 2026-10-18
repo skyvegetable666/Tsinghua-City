@@ -304,6 +304,31 @@ def agent_from_token(session: Session, raw_token: str) -> Agent | None:
     ).one_or_none()
 
 
+def rotate_agent_token(session: Session, agent: Agent) -> str:
+    """Issue a fresh agent token; caller owns the transaction/commit."""
+    raw = generate_agent_token()
+    agent.token_hash = token_hash(raw)
+    session.flush()
+    return raw
+
+
+def record_event(
+    session: Session,
+    world_id: str,
+    event_type: str,
+    *,
+    actor_agent_id: str | None = None,
+    data: dict[str, Any] | None = None,
+) -> Event:
+    return _emit(
+        session,
+        world_id,
+        event_type,
+        actor_agent_id=actor_agent_id,
+        data=data,
+    )
+
+
 def refresh_alive(session: Session, agent: Agent, world: World) -> bool:
     if not agent.alive:
         return False

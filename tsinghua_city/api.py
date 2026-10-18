@@ -21,6 +21,7 @@ from .auth import admin_matches, extract_bearer
 from .config import Settings, load_settings
 from .db import init_db, make_engine, make_session_factory
 from .models import Agent, World
+from .runtime import RuntimeManager
 from .scheduler import Scheduler
 from .schemas import (
     AgentCreate,
@@ -38,6 +39,8 @@ from .schemas import (
     PostOut,
     ReplyCreate,
     ReplyOut,
+    RuntimeOut,
+    RuntimeStart,
     StateOut,
     TaskCreate,
     TaskOut,
@@ -77,6 +80,7 @@ def create_app(
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         init_db(engine)
+        runtime_manager.reconcile()
         maintenance = (
             Scheduler(session_factory, settings.scheduler_interval_seconds)
             if run_scheduler
@@ -99,6 +103,8 @@ def create_app(
     app.state.settings = settings
     app.state.engine = engine
     app.state.session_factory = session_factory
+    runtime_manager = RuntimeManager(settings, session_factory)
+    app.state.runtime_manager = runtime_manager
 
     @app.exception_handler(service.DomainError)
     async def domain_error_handler(_request, exc: service.DomainError) -> JSONResponse:
@@ -226,6 +232,132 @@ def create_app(
         if world is None:
             raise HTTPException(status_code=404, detail="world not found")
         return [service.event_view(event) for event in service.events(session, world, limit=limit)]
+
+    def runtime_subject(
+        world_id: str,
+        agent_id: str,
+        session: Session,
+    ) -> tuple[World, Agent]:
+        world = session.get(World, world_id)
+        if world is None:
+            raise HTTPException(status_code=404, detail="world not found")
+        agent = session.get(Agent, agent_id)
+        if agent is None or agent.world_id != world.id:
+            raise HTTPException(status_code=404, detail="agent not found in world")
+        return world, agent
+
+    @app.get(
+        "/v1/worlds/{world_id}/agents/{agent_id}/runtime",
+        response_model=RuntimeOut,
+    )
+    def get_runtime(
+        world_id: str,
+        agent_id: str,
+        _admin: None = Depends(require_admin),
+        session: Session = Depends(get_db),
+    ) -> dict[str, Any]:
+        world, agent = runtime_subject(world_id, agent_id, session)
+        runtime = runtime_manager.get_runtime(session, world, agent)
+        if runtime is None:
+            raise HTTPException(status_code=404, detail="runtime not found")
+        return runtime_manager.view(runtime)
+
+    @app.post(
+        "/v1/worlds/{world_id}/agents/{agent_id}/runtime/start",
+        response_model=RuntimeOut,
+    )
+    def start_runtime(
+        world_id: str,
+        agent_id: str,
+        body: RuntimeStart,
+        _admin: None = Depends(require_admin),
+        session: Session = Depends(get_db),
+    ) -> dict[str, Any]:
+        world, agent = runtime_subject(world_id, agent_id, session)
+        runtime = runtime_manager.start(
+            session,
+            world,
+            agent,
+            command=body.command,
+            adapter=body.adapter,
+        )
+        return runtime_manager.view(runtime)
+
+    @app.post(
+        "/v1/worlds/{world_id}/agents/{agent_id}/runtime/stop",
+        response_model=RuntimeOut,
+    )
+    def stop_runtime(
+        world_id: str,
+        agent_id: str,
+        _admin: None = Depends(require_admin),
+        session: Session = Depends(get_db),
+    ) -> dict[str, Any]:
+        world, agent = runtime_subject(world_id, agent_id, session)
+        return runtime_manager.view(runtime_manager.stop(session, world, agent))
+
+    @app.post(
+        "/v1/worlds/{world_id}/agents/{agent_id}/runtime/suspend",
+        response_model=RuntimeOut,
+    )
+    def suspend_runtime(
+        world_id: str,
+        agent_id: str,
+        _admin: None = Depends(require_admin),
+        session: Session = Depends(get_db),
+    ) -> dict[str, Any]:
+        world, agent = runtime_subject(world_id, agent_id, session)
+        return runtime_manager.view(runtime_manager.suspend(session, world, agent))
+
+    @app.post(
+        "/v1/worlds/{world_id}/agents/{agent_id}/runtime/resume",
+        response_model=RuntimeOut,
+    )
+    def resume_runtime(
+        world_id: str,
+        agent_id: str,
+        _admin: None = Depends(require_admin),
+        session: Session = Depends(get_db),
+    ) -> dict[str, Any]:
+        world, agent = runtime_subject(world_id, agent_id, session)
+        return runtime_manager.view(runtime_manager.resume(session, world, agent))
+
+    @app.post(
+        "/v1/worlds/{world_id}/agents/{agent_id}/runtime/terminate",
+        response_model=RuntimeOut,
+    )
+    def terminate_runtime(
+        world_id: str,
+        agent_id: str,
+        _admin: None = Depends(require_admin),
+        session: Session = Depends(get_db),
+    ) -> dict[str, Any]:
+        world, agent = runtime_subject(world_id, agent_id, session)
+        return runtime_manager.view(runtime_manager.terminate(session, world, agent))
+
+    @app.get("/v1/worlds/{world_id}/runtimes", response_model=list[RuntimeOut])
+    def list_runtimes(
+        world_id: str,
+        _admin: None = Depends(require_admin),
+        session: Session = Depends(get_db),
+    ) -> list[dict[str, Any]]:
+        world = session.get(World, world_id)
+        if world is None:
+            raise HTTPException(status_code=404, detail="world not found")
+        return [
+            runtime_manager.view(runtime)
+            for runtime in runtime_manager.list_world(session, world)
+        ]
+
+    @app.post("/v1/worlds/{world_id}/runtimes/reconcile")
+    def reconcile_runtimes(
+        world_id: str,
+        _admin: None = Depends(require_admin),
+        session: Session = Depends(get_db),
+    ) -> dict[str, Any]:
+        if session.get(World, world_id) is None:
+            raise HTTPException(status_code=404, detail="world not found")
+        return {"reconciled": runtime_manager.reconcile()}
 
     @app.post(
         "/v1/worlds/{world_id}/tasks",

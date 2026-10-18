@@ -47,6 +47,7 @@ async def test_mcp_stdio_tools_against_live_api(tmp_path: Path) -> None:
             database_url=f"sqlite:///{db_path}",
             admin_token="admin",
             scheduler_enabled=False,
+            runtime_log_dir=str(tmp_path / "runtime"),
         ),
         engine=None,
     )

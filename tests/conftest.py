@@ -45,11 +45,12 @@ def engine():
 
 
 @pytest.fixture
-def settings() -> Settings:
+def settings(tmp_path) -> Settings:
     return Settings(
         database_url="sqlite://",
         admin_token=ADMIN,
         scheduler_enabled=False,
+        runtime_log_dir=str(tmp_path / "runtime"),
     )
 
 

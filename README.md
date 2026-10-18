@@ -22,6 +22,7 @@ The old [genesis-lab](genesis-lab/) directory is kept as a **prototype** of the 
 - Admin + agent HTTP API
 - MCP server exposing world capabilities, with a real stdio handshake test
 - CLI for init, upgrade, serve, tick, world/agent creation
+- Local subprocess runtime adapter with process lifecycle
 
 **Phase 1.1 — hardening (implemented):**
 
@@ -41,11 +42,19 @@ The old [genesis-lab](genesis-lab/) directory is kept as a **prototype** of the 
 - Task publication idempotency
 - In-process maintenance scheduler for deadlines and agent death
 
+**Phase 3 — runtime manager (local adapter implemented):**
+
+- One runtime record per agent, separate from logical identity
+- Admin start / stop / suspend / resume / terminate
+- Per-runtime process logs and generated MCP config
+- Agent token rotation on runtime start/resume
+- Startup reconciliation marks lost processes crashed
+
 **Not implemented yet:**
 
 - Agent memory / context management
-- Runtime manager / sandbox lifecycle
-- suspend / resume / recovery
+- Container/sandbox adapter (Docker/OpenHands/E2B)
+- Durable runtime recovery/restart policy
 - Web Canvas / experiment dashboard
 - Experiment configuration and run comparison
 - Named external-employer identities and budgets
@@ -167,7 +176,8 @@ researcher / experiment config
         └── Event log
         │
         ├── MCP server (FastMCP, stateless)
-        └── runtime adapters (next phase)
+        └── local runtime manager (agent processes)
+
 ```
 
 Current repository layout:
@@ -184,6 +194,7 @@ Tsinghua-City/
 │   ├── auth.py               # bearer-token helpers
 │   ├── mcp_server.py         # MCP world tools
 │   ├── scheduler.py          # in-process deadline/death sweep
+│   ├── runtime.py            # runtime manager + local subprocess adapter
 │   └── cli.py                # init / upgrade / serve / tick / create / mcp
 ├── migrations/               # Alembic baseline
 ├── tests/
@@ -203,7 +214,7 @@ Tsinghua-City/
 - Default: `sqlite:///./runs/city.db` for local development.
 - Production: set `CITY_DATABASE_URL=postgresql+psycopg://...` (install the Postgres driver).
 - Schema creation is managed by Alembic: `tsinghua-city init` and
-  `tsinghua-city upgrade` apply `migrations/` up to `0003_task_idempotency`.
+  `tsinghua-city upgrade` apply `migrations/` up to `0004_agent_runtimes`.
 - Tests and the app factory still use `create_all` for disposable test databases.
 - `tsinghua-city tick` runs one maintenance sweep; `serve` starts an in-process
   scheduler (interval via `CITY_SCHEDULER_INTERVAL_SECONDS`).
@@ -224,6 +235,14 @@ Tsinghua-City/
 | GET | `/v1/worlds/{id}/agents` | admin | list agents |
 | POST | `/v1/worlds/{id}/reap` | admin | mark expired agents dead |
 | GET | `/v1/worlds/{id}/events` | admin | event log |
+| GET | `/v1/worlds/{id}/agents/{agent_id}/runtime` | admin | runtime state |
+| POST | `/v1/worlds/{id}/agents/{agent_id}/runtime/start` | admin | start process |
+| POST | `/v1/worlds/{id}/agents/{agent_id}/runtime/stop` | admin | stop process |
+| POST | `/v1/worlds/{id}/agents/{agent_id}/runtime/suspend` | admin | logical suspend |
+| POST | `/v1/worlds/{id}/agents/{agent_id}/runtime/resume` | admin | resume process |
+| POST | `/v1/worlds/{id}/agents/{agent_id}/runtime/terminate` | admin | terminate |
+| GET | `/v1/worlds/{id}/runtimes` | admin | list runtimes |
+| POST | `/v1/worlds/{id}/runtimes/reconcile` | admin | reconcile lost processes |
 | GET | `/v1/me` | agent | own state |
 | GET | `/v1/me/balance` | agent | own balance |
 | POST | `/v1/me/extend-life` | agent | spend credits for seconds |
@@ -280,7 +299,9 @@ Reusing a key with different parameters returns 409; reusing it with the same pa
 8. **Task escrow.** Publishing a task moves its reward from the publisher to a world escrow account; acceptance pays the assignee, cancellation/expiry refunds the funder. External tasks are funded from the system account.
 9. **Bounded task lifecycle.** One assignee, publisher-controlled acceptance, reject-to-open, and admin expiry. Bidding, disputes, and multi-agent tasks are deferred.
 10. **Public board is append-only.** Posts/replies are world-scoped and never silently edited or deleted; moderation/editing is deferred.
-11. **No social orchestration framework.** The platform will not prescribe collaboration patterns using CrewAI/AutoGen/LangGraph-style workflows; those are experiment baselines at most.
+11. **Logical identity is separate from process.** A runtime record points at a process; starting a runtime rotates the agent credential and injects it only into the process/MCP config. Stopping the process does not delete the agent.
+12. **The local adapter is not a sandbox.** It is for harness development/tests; a container/OpenHands/E2B adapter is still required for isolation.
+13. **No social orchestration framework.** The platform will not prescribe collaboration patterns using CrewAI/AutoGen/LangGraph-style workflows; those are experiment baselines at most.
 
 ---
 
@@ -301,21 +322,24 @@ Reusing a key with different parameters returns 409; reusing it with the same pa
 - [x] task board with escrow and external tasks
 - [x] public bulletin board (posts/replies)
 - [x] task publication idempotency
-- [x] Alembic baseline (0003 head)
+- [x] Alembic baseline (0002/0003)
 - [x] in-process deadline/death maintenance
 - [ ] inbox/delivery scheduler
 - [ ] named external-employer budgets
 - [ ] experiment configuration and run manifests
 - [ ] OpenTelemetry event export
 
-### Phase 3 — runtime manager
+### Phase 3 — runtime manager (local adapter done; sandbox pending)
 
-- adapter for an existing harness (OpenHands SDK/Agent Server, Claude Agent SDK, or a container sandbox)
-- process lifecycle: create/start/suspend/resume/terminate
-- persistent identity separate from process
-- safe-point message delivery integration
-- recovery and failure handling
-- sandbox isolation via a mature provider where possible
+- [x] runtime record separate from logical agent identity
+- [x] start / stop / suspend / resume / terminate via admin API
+- [x] per-runtime logs and generated MCP stdio config
+- [x] token rotation on start/resume
+- [x] startup/process-loss reconciliation
+- [ ] container/sandbox adapter (OpenHands SDK/Agent Server, E2B, Docker/K8s)
+- [ ] safe-point message delivery integration
+- [ ] automatic restart policy and durable recovery
+- [ ] multi-worker runtime ownership / leases
 
 ### Phase 4 — Canvas and experiment management
 
@@ -348,7 +372,7 @@ It is **not** the authority for world state and should not be the place where cr
 .venv/bin/pytest -q
 ```
 
-Default result: **21 passed, 2 skipped**. The two skipped tests are
+Default result: **24 passed, 2 skipped**. The two skipped tests are
 Postgres-only concurrency checks.
 
 Tests cover:
@@ -368,7 +392,10 @@ Tests cover:
 - public posts, replies, and board world-isolation
 - task publish idempotency and conflict detection
 - maintenance sweep: task expiry/refund and agent reaping
-- Alembic baseline + 0002/0003 migrations
+- runtime start / token rotation / suspend / resume / stop
+- runtime process-loss reconciliation
+- runtime does not leak server environment secrets
+- Alembic baseline + 0002/0003/0004 migrations
 
 ### Run against Postgres
 

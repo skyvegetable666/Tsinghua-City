@@ -22,11 +22,12 @@ def test_upgrade_creates_schema_and_records_version(tmp_path):
             "messages",
             "posts",
             "post_replies",
+            "agent_runtimes",
             "events",
             "alembic_version",
         } <= set(inspect(engine).get_table_names())
         with engine.connect() as connection:
             version = connection.execute(text("select version_num from alembic_version")).scalar()
-        assert version == "0003_task_idempotency"
+        assert version == "0004_agent_runtimes"
     finally:
         engine.dispose()

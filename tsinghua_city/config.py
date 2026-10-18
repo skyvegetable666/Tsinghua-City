@@ -23,6 +23,8 @@ class Settings:
     log_level: str = "info"
     scheduler_enabled: bool = True
     scheduler_interval_seconds: float = 5.0
+    api_url: str = "http://127.0.0.1:8000"
+    runtime_log_dir: str = "runs/runtime"
 
     @property
     def uses_default_admin_token(self) -> bool:
@@ -41,6 +43,8 @@ def load_settings() -> Settings:
         scheduler_interval_seconds=float(
             os.environ.get("CITY_SCHEDULER_INTERVAL_SECONDS", "5")
         ),
+        api_url=os.environ.get("CITY_API_URL", "http://127.0.0.1:8000").rstrip("/"),
+        runtime_log_dir=os.environ.get("CITY_RUNTIME_LOG_DIR", "runs/runtime"),
     )
 
 

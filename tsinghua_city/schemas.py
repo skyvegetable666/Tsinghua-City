@@ -158,6 +158,29 @@ class TaskOut(BaseModel):
     closed_at: str | None
 
 
+class RuntimeStart(BaseModel):
+    command: list[str] = Field(min_length=1)
+    adapter: str = Field(default="local", max_length=32)
+
+
+class RuntimeOut(BaseModel):
+    id: str
+    world_id: str
+    agent_id: str
+    adapter: str
+    status: str
+    command: list[str]
+    pid: int | None
+    log_path: str | None
+    mcp_config_path: str | None
+    exit_code: int | None
+    last_error: str | None
+    created_at: str
+    updated_at: str
+    started_at: str | None
+    stopped_at: str | None
+
+
 class EventOut(BaseModel):
     id: str
     event_type: str
