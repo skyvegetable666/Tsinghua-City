@@ -25,6 +25,8 @@ from .models import (
     LedgerEntry,
     LedgerTransaction,
     Message,
+    Post,
+    PostReply,
     Task,
     World,
 )
@@ -700,6 +702,153 @@ def message_view(session: Session, message: Message) -> dict[str, Any]:
         "created_at": iso(message.created_at),
         "read_at": iso(message.read_at),
     }
+
+
+# ------------------------------------------------------------ public board
+
+POST_TITLE_MAX = 200
+POST_BODY_MAX = 8_000
+
+
+def _validate_post_fields(title: str, body: str) -> tuple[str, str]:
+    title = title.strip()
+    body = body.strip()
+    if not title or len(title) > POST_TITLE_MAX:
+        raise DomainError("post title must be 1-200 characters", 400)
+    if not body:
+        raise DomainError("post body must not be empty", 400)
+    if len(body) > POST_BODY_MAX:
+        raise DomainError(f"post body too long; limit is {POST_BODY_MAX}", 400)
+    return title, body
+
+
+def _reply_view(session: Session, reply: PostReply) -> dict[str, Any]:
+    author = session.get(Agent, reply.author_agent_id)
+    return {
+        "id": reply.id,
+        "post_id": reply.post_id,
+        "author": author.name if author else reply.author_agent_id,
+        "body": reply.body,
+        "created_at": iso(reply.created_at),
+    }
+
+
+def _post_view(
+    session: Session,
+    post: Post,
+    *,
+    include_replies: bool,
+) -> dict[str, Any]:
+    author = session.get(Agent, post.author_agent_id)
+    data: dict[str, Any] = {
+        "id": post.id,
+        "world_id": post.world_id,
+        "author": author.name if author else post.author_agent_id,
+        "title": post.title,
+        "body": post.body,
+        "created_at": iso(post.created_at),
+    }
+    if include_replies:
+        replies = session.scalars(
+            select(PostReply)
+            .where(PostReply.post_id == post.id)
+            .order_by(PostReply.created_at)
+        ).all()
+        data["replies"] = [_reply_view(session, reply) for reply in replies]
+    return data
+
+
+def publish_post(session: Session, world: World, agent: Agent, *, title: str, body: str) -> Post:
+    require_alive(session, agent, world)
+    title, body = _validate_post_fields(title, body)
+    post = Post(
+        id=_id("post_"),
+        world_id=world.id,
+        author_agent_id=agent.id,
+        title=title,
+        body=body,
+        created_at=utcnow(),
+    )
+    session.add(post)
+    _emit(
+        session,
+        world.id,
+        "post.published",
+        actor_agent_id=agent.id,
+        data={"post_id": post.id, "title": title},
+    )
+    session.commit()
+    session.refresh(post)
+    return post
+
+
+def list_posts(session: Session, world: World, *, limit: int = 100) -> list[Post]:
+    limit = max(1, min(int(limit), 200))
+    return list(
+        session.scalars(
+            select(Post)
+            .where(Post.world_id == world.id)
+            .order_by(Post.created_at.desc())
+            .limit(limit)
+        ).all()
+    )
+
+
+def get_post(session: Session, world: World, post_id: str) -> Post:
+    post = session.scalars(
+        select(Post).where(Post.id == post_id, Post.world_id == world.id)
+    ).one_or_none()
+    if post is None:
+        raise DomainError("post not found", 404)
+    return post
+
+
+def post_view(
+    session: Session,
+    post: Post,
+    *,
+    include_replies: bool = False,
+) -> dict[str, Any]:
+    return _post_view(session, post, include_replies=include_replies)
+
+
+def reply_to_post(
+    session: Session,
+    world: World,
+    agent: Agent,
+    post_id: str,
+    body: str,
+) -> PostReply:
+    require_alive(session, agent, world)
+    post = get_post(session, world, post_id)
+    body = body.strip()
+    if not body:
+        raise DomainError("reply body must not be empty", 400)
+    if len(body) > POST_BODY_MAX:
+        raise DomainError(f"reply too long; limit is {POST_BODY_MAX}", 400)
+    reply = PostReply(
+        id=_id("reply_"),
+        world_id=world.id,
+        post_id=post.id,
+        author_agent_id=agent.id,
+        body=body,
+        created_at=utcnow(),
+    )
+    session.add(reply)
+    _emit(
+        session,
+        world.id,
+        "post.replied",
+        actor_agent_id=agent.id,
+        data={"post_id": post.id, "reply_id": reply.id},
+    )
+    session.commit()
+    session.refresh(reply)
+    return reply
+
+
+def reply_view(session: Session, reply: PostReply) -> dict[str, Any]:
+    return _reply_view(session, reply)
 
 
 # ---------------------------------------------------------------- task board

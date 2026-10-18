@@ -91,6 +91,36 @@ class MarkReadRequest(BaseModel):
     message_ids: list[str] = Field(min_length=1)
 
 
+class PostCreate(BaseModel):
+    title: str = Field(min_length=1, max_length=200)
+    body: str = Field(min_length=1, max_length=8_000)
+
+
+class ReplyCreate(BaseModel):
+    body: str = Field(min_length=1, max_length=8_000)
+
+
+class ReplyOut(BaseModel):
+    id: str
+    post_id: str
+    author: str
+    body: str
+    created_at: str
+
+
+class PostOut(BaseModel):
+    id: str
+    world_id: str
+    author: str
+    title: str
+    body: str
+    created_at: str
+
+
+class PostDetailOut(PostOut):
+    replies: list[ReplyOut]
+
+
 class TaskCreate(BaseModel):
     title: str = Field(min_length=1, max_length=200)
     description: str = Field(min_length=1)

@@ -32,6 +32,11 @@ from .schemas import (
     MarkReadRequest,
     MessageCreate,
     MessageOut,
+    PostCreate,
+    PostDetailOut,
+    PostOut,
+    ReplyCreate,
+    ReplyOut,
     StateOut,
     TaskCreate,
     TaskOut,
@@ -386,6 +391,57 @@ def create_app(
     ) -> dict[str, Any]:
         changed = service.mark_read(auth.session, auth.agent, body.message_ids)
         return {"ok": True, "changed": changed}
+
+    @app.get("/v1/me/posts", response_model=list[PostOut])
+    def list_posts(
+        limit: int = Query(default=100, ge=1, le=200),
+        auth: AgentAuth = Depends(require_agent),
+    ) -> list[dict[str, Any]]:
+        return [
+            service.post_view(auth.session, post)
+            for post in service.list_posts(auth.session, auth.world, limit=limit)
+        ]
+
+    @app.get("/v1/me/posts/{post_id}", response_model=PostDetailOut)
+    def get_post(
+        post_id: str,
+        auth: AgentAuth = Depends(require_agent),
+    ) -> dict[str, Any]:
+        post = service.get_post(auth.session, auth.world, post_id)
+        return service.post_view(auth.session, post, include_replies=True)
+
+    @app.post("/v1/me/posts", response_model=PostOut, status_code=201)
+    def publish_post(
+        body: PostCreate,
+        auth: AgentAuth = Depends(require_agent),
+    ) -> dict[str, Any]:
+        post = service.publish_post(
+            auth.session,
+            auth.world,
+            auth.agent,
+            title=body.title,
+            body=body.body,
+        )
+        return service.post_view(auth.session, post)
+
+    @app.post(
+        "/v1/me/posts/{post_id}/replies",
+        response_model=ReplyOut,
+        status_code=201,
+    )
+    def reply_to_post(
+        post_id: str,
+        body: ReplyCreate,
+        auth: AgentAuth = Depends(require_agent),
+    ) -> dict[str, Any]:
+        reply = service.reply_to_post(
+            auth.session,
+            auth.world,
+            auth.agent,
+            post_id,
+            body.body,
+        )
+        return service.reply_view(auth.session, reply)
 
     @app.get("/v1/me/tasks", response_model=list[TaskOut])
     def list_tasks(

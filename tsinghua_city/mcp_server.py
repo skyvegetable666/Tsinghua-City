@@ -138,6 +138,32 @@ def list_agents() -> list[dict[str, Any]]:
 
 
 
+
+
+@mcp.tool()
+def list_posts(limit: int = 100) -> list[dict[str, Any]]:
+    """List public bulletin-board posts."""
+    return _request("GET", f"/v1/me/posts?limit={int(limit)}")
+
+
+@mcp.tool()
+def get_post(post_id: str) -> dict[str, Any]:
+    """Read one public post and its replies."""
+    return _request("GET", "/v1/me/posts/" + post_id)
+
+
+@mcp.tool()
+def publish_post(title: str, body: str) -> dict[str, Any]:
+    """Publish a public post to the bulletin board."""
+    return _request("POST", "/v1/me/posts", {"title": title, "body": body})
+
+
+@mcp.tool()
+def reply_to_post(post_id: str, body: str) -> dict[str, Any]:
+    """Reply to a public post."""
+    return _request("POST", f"/v1/me/posts/{post_id}/replies", {"body": body})
+
+
 @mcp.tool()
 def list_tasks(status: str | None = None, limit: int = 100) -> list[dict[str, Any]]:
     """List the public task board.

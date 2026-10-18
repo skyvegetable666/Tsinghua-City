@@ -24,6 +24,10 @@ def test_tools_delegate_to_world_api(monkeypatch):
     assert mcp_server.mark_messages_read(["m1"]) == {"ok": True}
     assert mcp_server.list_agents() == {"ok": True}
     assert mcp_server.get_inbox(unread_only=True, limit=5) == {"ok": True}
+    assert mcp_server.list_posts(limit=5) == {"ok": True}
+    assert mcp_server.get_post("p1") == {"ok": True}
+    assert mcp_server.publish_post("t", "b") == {"ok": True}
+    assert mcp_server.reply_to_post("p1", "r") == {"ok": True}
     assert mcp_server.list_tasks(status="open", limit=5) == {"ok": True}
     assert mcp_server.get_task("t1") == {"ok": True}
     assert mcp_server.publish_task("t", "d", "a", 10) == {"ok": True}
@@ -42,6 +46,10 @@ def test_tools_delegate_to_world_api(monkeypatch):
         ("POST", "/v1/me/messages/read", {"message_ids": ["m1"]}),
         ("GET", "/v1/me/agents", None),
         ("GET", "/v1/me/messages?unread_only=true&limit=5", None),
+        ("GET", "/v1/me/posts?limit=5", None),
+        ("GET", "/v1/me/posts/p1", None),
+        ("POST", "/v1/me/posts", {"title": "t", "body": "b"}),
+        ("POST", "/v1/me/posts/p1/replies", {"body": "r"}),
         ("GET", "/v1/me/tasks?limit=5&status=OPEN", None),
         ("GET", "/v1/me/tasks/t1", None),
         (

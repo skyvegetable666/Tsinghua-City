@@ -20,11 +20,13 @@ def test_upgrade_creates_schema_and_records_version(tmp_path):
             "accounts",
             "tasks",
             "messages",
+            "posts",
+            "post_replies",
             "events",
             "alembic_version",
         } <= set(inspect(engine).get_table_names())
         with engine.connect() as connection:
             version = connection.execute(text("select version_num from alembic_version")).scalar()
-        assert version == "0001_initial"
+        assert version == "0002_public_board"
     finally:
         engine.dispose()
