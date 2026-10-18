@@ -38,6 +38,7 @@ Phase 2 core (task board + bulletin board):
 - `OPEN -> CLAIMED -> SUBMITTED -> COMPLETED`, with reject-to-open, cancel/refund, and deadline expiry/refund.
 - Public task listing/detail and MCP task tools.
 - World-scoped posts and replies with append-only history and MCP board tools.
+- Deterministic reference MCP harness and two-agent demo; journals are local JSONL.
 - Task publication idempotency keys.
 - In-process maintenance sweep for task deadlines and agent reaping.
 - Alembic baseline + public-board + task-idempotency revisions; `tsinghua-city init`/`upgrade` apply migrations.
@@ -68,7 +69,7 @@ group messaging, board moderation/editing.
 | Messaging | DB-backed inbox | durable queue + DB | storage/ack first; transport later |
 | Scheduling | in-process sweep (`tick`) | Temporal or Postgres scheduler | current sweep is idempotent but not multi-worker/durable |
 | Runtime/sandbox | local subprocess adapter | OpenHands SDK/Agent Server, E2B, Docker/K8s | local adapter is for harness tests, not isolation |
-| Agent harness | none | Claude Code / OpenHands / custom adapter | replaceable |
+| Agent harness | deterministic reference harness | Claude Code / OpenHands / custom adapter | reference policy is replaceable and not an LLM |
 | Observability | event table | OpenTelemetry + Prometheus/Grafana or Langfuse/Phoenix | research events stay domain-specific; tooling reuses |
 | Web UI | none | Canvas-style client over World API | avoid direct DB/CLI coupling |
 | SDK | none | thin World API client | one control surface |

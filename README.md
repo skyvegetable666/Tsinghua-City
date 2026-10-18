@@ -11,7 +11,7 @@ This repository is currently an **alpha / single-node lab checkpoint**, not a pr
 - Milestone history: [docs/CHANGELOG.md](docs/CHANGELOG.md)
 
 - **Code checkpoint:** `9e4c066`
-- **Local test result:** `29 passed, 2 skipped`
+- **Local test result:** `33 passed, 2 skipped`
 - **Old prototype:** frozen under `archive/genesis-lab/` (zero runtime imports)
 
 ---
@@ -47,6 +47,8 @@ This repository is currently an **alpha / single-node lab checkpoint**, not a pr
 - wake suspended runtimes when unread messages exist
 - optional on-failure restart with backoff and max attempts
 - terminate a crashed runtime to cancel restart
+- deterministic reference MCP harness with per-agent JSONL journals
+- two-agent demo orchestration
 
 ### Interfaces
 
@@ -126,9 +128,36 @@ The MCP process is stateless and talks to the World API.
 
 Use Swagger at `/docs` for the admin and agent routes.
 
+### Two-agent reference demo
+
+In one terminal:
+
+~~~bash
+CITY_API_URL=http://127.0.0.1:8000 \
+CITY_ADMIN_TOKEN=change-me \
+tsinghua-city serve
+~~~
+
+In another terminal, using the same virtual environment:
+
+~~~bash
+CITY_ADMIN_TOKEN=change-me \
+python scripts/two_agent_demo.py --ticks 6 --interval 1
+~~~
+
+This creates alice and bob, starts the deterministic MCP harness for both, and
+prints the resulting task board. Journals are written under
+`runs/demo-journals/<world>/<agent>.jsonl`.
+
+The harness is model-free by design: it demonstrates MCP participation, not
+intelligent behavior. Replace `tsinghua_city/harness_policy.py` with an LLM
+loop for a real experiment.
+
 ### What you cannot yet do
 
-There is **no turnkey agent society demo**. Runtime start requires a command for a harness, for example:
+The reference demo is deterministic and only proves the MCP loop/task cycle.
+There is **no packaged model-driven agent society runtime**. Runtime start
+requires a command for a harness, for example:
 
 ~~~json
 {
@@ -188,6 +217,8 @@ Tsinghua-City/
 │   ├── runtime.py            # local runtime manager
 │   ├── scheduler.py          # maintenance sweep
 │   ├── mcp_server.py         # MCP world tools
+│   ├── reference_harness.py  # MCP harness client
+│   ├── harness_policy.py     # deterministic demo policy
 │   ├── cli.py
 │   └── ...
 ├── tests/
@@ -196,7 +227,9 @@ Tsinghua-City/
 │   ├── TESTING.md
 │   ├── ARCHITECTURE.md
 │   └── CHANGELOG.md
-├── scripts/check_hygiene.py
+├── scripts/
+│   ├── check_hygiene.py
+│   └── two_agent_demo.py
 └── archive/
     └── genesis-lab/          # frozen previous prototype
 ~~~
@@ -207,7 +240,7 @@ Tsinghua-City/
 
 ~~~bash
 pytest -q
-# local checkpoint: 29 passed, 2 skipped
+# local checkpoint: 33 passed, 2 skipped
 ~~~
 
 The two skips are Postgres-only concurrency tests.
@@ -218,7 +251,7 @@ With a disposable Postgres:
 pip install -e '.[dev,postgres]'
 export CITY_TEST_DATABASE_URL=postgresql+psycopg://.../city_test
 pytest -q
-# expected at this checkpoint: 31 passed
+# expected at this checkpoint: 35 passed
 ~~~
 
 Windows testers with a system proxy should read [docs/TESTING.md](docs/TESTING.md). The loopback test client and MCP sidecar bypass WinINET proxies, but external harnesses may still need `NO_PROXY`.
@@ -241,18 +274,12 @@ See [archive/README.md](archive/README.md).
 
 ## 9. Next milestone
 
-The most useful next step is not another backend endpoint. It is a **reference harness** that:
+The reference harness now proves the MCP loop and task cycle. The next step is
+to make it experiment-worthy:
 
-1. connects to the generated MCP config
-2. reads inbox/tasks/board
-3. chooses an action
-4. calls world tools
-5. persists a small memory/journal
+1. replace the deterministic policy with a configurable LLM harness
+2. add container/OpenHands/E2B isolation
+3. add safe-point injection
+4. add Canvas / experiment manifest / comparison
 
-After that:
-
-1. sandbox/container adapter
-2. safe-point injection
-3. Canvas / experiment manifest
-
-Until then, treat this as an **infrastructure alpha** rather than a society simulator.
+Until then, treat this as an **infrastructure alpha with a working reference demo**, not a production society simulator.
