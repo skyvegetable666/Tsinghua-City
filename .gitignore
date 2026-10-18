@@ -23,6 +23,10 @@ htmlcov/
 # research / external clones
 .research/
 
+# agent tooling caches
+.npm-cache/
+.superdesign/
+
 # OS
 .DS_Store
 Thumbs.db
