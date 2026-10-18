@@ -371,7 +371,7 @@ asyncio.run(runtime.run())
 剩余工作：
 
 - **per-agent prompt/skill/model/harness**：`AGENTS` 对象目前只读取 `name`；下一步可以读取 `prompt`、`skills`、`model`、`harness` 并把它们注入 compose/runtime；
-- **WebConsole**：当前只有 CLI/日志/静态报告；
+- **WebConsole**：已实现 `up --web` 的本地控制台（[WEBCONSOLE.md](WEBCONSOLE.md)）；剩余的是登录/多用户、独立 attach、从 UI 启动世界；
 - **并发多个世界**：compose 项目名/容器名仍固定为 `genesis-lab`，需要动态 project name；
 - **强隔离**：网络/ token 已隔离，但 Bash/同 UID /proc 仍是残余风险。
 

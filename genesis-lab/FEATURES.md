@@ -1,7 +1,7 @@
 # Genesis Lab 功能清单
 
 状态：研究实验台（research prototype），不是生产级多 agent 框架。  
-当前实验支持 **N >= 2 个 agent**；per-agent 配置与 WebConsole 仍在扩展路线中，见 [EXTENDING.md](EXTENDING.md)。
+当前实验支持 **N >= 2 个 agent**，并带本地 Web Console；per-agent 配置与远程/多用户控制台仍在扩展路线中，见 [EXTENDING.md](EXTENDING.md)。
 
 ## 1. 一句话
 
@@ -61,6 +61,7 @@
 | 结束 grace | ✅ | `END_GRACE_SECONDS`，给 agent 最后发言/收尾 |
 | 无 key mock | ✅ | `up --mock`：真实 Claude Code + 真实 bridge + 脚本化 Anthropic mock |
 | Python 控制面 SDK | ✅ | [genesis/](genesis/) + [SDK.md](SDK.md)：World/WorldSpec/AgentSpec、start/stop/status/events/send_system/report；薄封装现有 supervisor |
+| 本地 Web Console | ✅ | `up --web` + [WEBCONSOLE.md](WEBCONSOLE.md)：agent 状态、SSE 事件、系统消息、end、report |
 | Docker 自检 | ✅ | 容器/端口/compose/daemon/key/prompt 文件 |
 | 启动失败标记 | ✅ | 未到 genesis 就结束的 run 标记为 `startup failed` |
 
@@ -79,7 +80,7 @@
 
 | 能力 | 状态 | 说明 |
 | --- | --- | --- |
-| 单元/集成测试 | ✅ | 49 passed, 2 skipped（最近一次） |
+| 单元/集成测试 | ✅ | 53 passed, 2 skipped（最近一次） |
 | 真实 Claude CLI 集成测试 | ✅ | 2 passed，用 mock LLM，不需要真实 key |
 | mock LLM | ✅ | 支持 streaming / 非 streaming、demo / tool_then_end |
 | repo hygiene 脚本 | ✅ | 检查 tracked 文件中的 key、私钥、runs、日志 |
@@ -91,7 +92,7 @@
 - **per-agent prompt / skill / model / harness**：当前 N 个 agent 仍共享 world/mission/genesis 和同一模型配置；见第 4 节。
 - **生成中途真正注入**：API 语义不支持；只能等工具边界或回合边界。
 - **自动重启 / 断点续跑**：bridge/Claude 崩溃后不会 resume。
-- **GUI / Web 控制台**：只有 CLI、日志和静态报告。
+- **Web Console 的登录 / 多用户 / 远程部署**：控制台无鉴权，默认 loopback；只在 `up --web` 时启动，没有独立的 attach/launch 模式。
 - **结构化消息/线程**：目前只有纯文本 + `kind=chat|system`。
 - **每消息发送方可见的回执**：发送方只看得到 broker ack 和后续 peer 回复；投递回执进日志。
 - **限流 / 成本预算**：只有消息数和时长；没有 token/cost 上限。
@@ -123,6 +124,7 @@
 ## 6. 文件地图
 
 - 入口/编排：[supervisor/cli.py](supervisor/cli.py)、[supervisor/broker.py](supervisor/broker.py)、[supervisor/compose.py](supervisor/compose.py)
+- Web Console：[supervisor/webconsole.py](supervisor/webconsole.py)、[WEBCONSOLE.md](WEBCONSOLE.md)
 - Python SDK：[genesis/](genesis/)、[SDK.md](SDK.md)、[examples/sdk_world.py](examples/sdk_world.py)
 - 容器运行时：[runtime/bridge.py](runtime/bridge.py)、[runtime/harness.py](runtime/harness.py)
 - 工具：[runtime/mcp_server.py](runtime/mcp_server.py)

@@ -545,32 +545,15 @@ class Broker:
             body = await request.json()
         except (json.JSONDecodeError, ValueError):
             return self._error("invalid json")
-        text = str(body.get("text") or "").strip()
-        if not text:
-            return self._error("message text is empty")
-        if len(text) > self.settings.max_message_chars:
-            return self._error(f"message too long; limit is {self.settings.max_message_chars}")
-        target = str(body.get("to") or "all").strip()
-        if target == "all":
-            recipients = list(self.agents)
-        elif target in self.agents:
-            recipients = [target]
-        else:
-            spec = self.settings.agent_by_name(target)
-            if spec is None:
-                return self._error("unknown recipient")
-            recipients = [spec.agent_id]
-        ids = [
-            self._enqueue(
-                recipient_id=recipient_id,
-                sender_id=None,
-                sender_name="supervisor",
-                kind="system",
-                text=text,
-            ).id
-            for recipient_id in recipients
-        ]
-        self.store.append("system_message_injected", ids=ids, to=target, text=text)
+        try:
+            ids = await self.inject_system_message(
+                str(body.get("text") or ""),
+                str(body.get("to") or "all"),
+            )
+        except RuntimeError as exc:
+            return self._error(str(exc), 409)
+        except ValueError as exc:
+            return self._error(str(exc))
         return web.json_response({"ok": True, "message_ids": ids})
 
     async def h_end(self, request: web.Request) -> web.Response:
@@ -590,6 +573,39 @@ class Broker:
         return web.json_response(self.status())
 
     # -------------------------------------------------------------- control
+    async def inject_system_message(self, text: str, target: str = "all") -> list[str]:
+        """Host/operator system message; returns the created message ids."""
+        if self.phase != "running":
+            raise RuntimeError(f"world is not running (phase={self.phase})")
+        text = text.strip()
+        if not text:
+            raise ValueError("message text is empty")
+        if len(text) > self.settings.max_message_chars:
+            raise ValueError(
+                f"message too long ({len(text)} chars); "
+                f"limit is {self.settings.max_message_chars}"
+            )
+        target = target.strip() or "all"
+        if target == "all":
+            recipients = list(self.agents)
+        else:
+            spec = self.settings.agent_by_id_or_name(target)
+            if spec is None:
+                raise ValueError(f"unknown recipient {target!r}")
+            recipients = [spec.agent_id]
+        ids = [
+            self._enqueue(
+                recipient_id=recipient_id,
+                sender_id=None,
+                sender_name="supervisor",
+                kind="system",
+                text=text,
+            ).id
+            for recipient_id in recipients
+        ]
+        self.store.append("system_message_injected", ids=ids, to=target, text=text)
+        return ids
+
     async def request_end(self, reason: str) -> bool:
         if self.phase != "running":
             return False

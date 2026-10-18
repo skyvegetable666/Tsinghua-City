@@ -34,6 +34,7 @@ from .settings import (
     write_current,
 )
 from .store import RunStore
+from .webconsole import WebConsole
 
 
 # --------------------------------------------------------------------- utils
@@ -364,6 +365,7 @@ def cmd_up(args: argparse.Namespace) -> int:
 
         started = False
         auto_end_task: asyncio.Task | None = None
+        web_console: WebConsole | None = None
         try:
             if args.mock:
                 mock = MockLLM(
@@ -396,6 +398,18 @@ def cmd_up(args: argparse.Namespace) -> int:
                 return 1
             started = True
             write_current(root, run, settings.broker_port, compose_file=compose_path)
+            if args.web:
+                web_console = WebConsole(settings, run, broker)
+                try:
+                    await web_console.start()
+                except OSError as exc:
+                    print(
+                        f"[supervisor] web console could not bind "
+                        f"{settings.web_host}:{settings.web_port}: {exc}",
+                        file=sys.stderr,
+                    )
+                    return 1
+                print(f"  web:     {web_console.url}", flush=True)
             env_run = _compose_env(settings, run, mock)
             print(
                 f"[supervisor] starting {len(settings.agents)} containers...",
@@ -418,6 +432,8 @@ def cmd_up(args: argparse.Namespace) -> int:
         finally:
             if auto_end_task:
                 auto_end_task.cancel()
+            if web_console is not None:
+                await web_console.stop()
             print("[supervisor] stopping containers...", flush=True)
             try:
                 await asyncio.to_thread(
@@ -667,6 +683,7 @@ def build_parser() -> argparse.ArgumentParser:
     up = sub.add_parser("up", help="build, start the containers and run the world in the foreground")
     up.add_argument("--mock", action="store_true", help="use the scripted mock LLM instead of DeepSeek (no API key)")
     up.add_argument("--no-build", action="store_true", help="skip docker compose build")
+    up.add_argument("--web", action="store_true", help="also serve the local web console (127.0.0.1 by default)")
     up.add_argument("--max-seconds", type=float, default=None, help="end the run after N seconds")
     up.add_argument("--max-messages", type=int, default=None, help="end the run after N chat messages")
     up.set_defaults(func=cmd_up)

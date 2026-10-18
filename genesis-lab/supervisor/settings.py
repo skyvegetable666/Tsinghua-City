@@ -93,6 +93,10 @@ class Settings:
     # native Linux (via compose extra_hosts) and Docker Desktop.
     broker_url: str = ""
     anthropic_env: dict[str, str] = field(default_factory=dict)
+    # Web console binding.  Default is loopback on purpose: the console has no
+    # authentication and can inject messages / end the run.
+    web_host: str = "127.0.0.1"
+    web_port: int = 8788
 
     def agent_by_name(self, name: str) -> AgentSpec | None:
         for spec in self.agents.values():
@@ -235,6 +239,8 @@ def load_settings(root: Path | None = None, *, env_file: Path | None = None) -> 
         genesis_path=genesis_path,
         broker_url=os.environ.get("BROKER_URL", "").strip(),
         anthropic_env=anthropic_env,
+        web_host=os.environ.get("WEB_CONSOLE_HOST", "127.0.0.1").strip() or "127.0.0.1",
+        web_port=_int("WEB_CONSOLE_PORT", 8788),
     )
 
 

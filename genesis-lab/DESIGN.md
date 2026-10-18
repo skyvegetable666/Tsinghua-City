@@ -32,6 +32,7 @@
   supervisor (Python)
     - CLI：init / up / down / status / say / end / logs / report
     - broker：唯一路由者，持有 run token
+    - webconsole：可选（up --web），本地控制台 / 事件 tail
     - 事件存储：runs/<id>/events.jsonl
   Docker Engine
     agent-a  [net-a]

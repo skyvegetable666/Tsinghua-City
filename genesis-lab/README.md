@@ -14,7 +14,7 @@
 
 **没有 API key 也能先跑通全链路**：`python -m supervisor up --mock` 会用脚本化的假模型替代 DeepSeek。
 
-> 完整功能清单和硬限制见 **[FEATURES.md](FEATURES.md)**；自定义 agent / N-agent 现状与剩余工作见 **[EXTENDING.md](EXTENDING.md)**；Python 控制面见 **[SDK.md](SDK.md)**。
+> 完整功能清单和硬限制见 **[FEATURES.md](FEATURES.md)**；自定义 agent / N-agent 现状与剩余工作见 **[EXTENDING.md](EXTENDING.md)**；Python 控制面见 **[SDK.md](SDK.md)**；浏览器控制台见 **[WEBCONSOLE.md](WEBCONSOLE.md)**。
 
 ## 0. 能力速览
 
@@ -23,7 +23,8 @@
 | N >= 2 个隔离容器中的 Claude Code agent | per-agent prompt / skill / model（当前仍是全局 prompt） |
 | 创世屏障、同时启动、可编辑 world/mission/genesis | 生成中途真正注入（只能等安全点） |
 | `agent_chat(recipient, message)` + 不打断投递 | 自动重启 / 断点续跑 |
-| 消息排序、幂等、投递回执、离线/上线通知 | GUI / 结构化消息 / 限流 / 成本上限 |
+| 消息排序、幂等、投递回执、离线/上线通知 | 结构化消息 / 限流 / 成本上限 |
+| 本地 Web Console（agent 状态、实时事件、系统消息、end、report） | Web Console 的登录 / 多用户 / 远程部署 |
 | JSONL 事件、transcript、metrics、CLI 控制 | 每消息发送方可见回执 / 多机高可用 |
 | Linux / Windows 宿主机、无 key mock、真实 CLI 集成测试 | 任意语言自定义 agent 目前只能**替换**其中一个 agent |
 
@@ -65,6 +66,24 @@ print(world.report()["messages"])
 
 完整 API、边界和示例见 **[SDK.md](SDK.md)**。
 
+### 0.3 Web Console（浏览器）
+
+启动世界时加 `--web`：
+
+```bash
+python -m supervisor up --web
+```
+
+终端会打印控制台地址（默认 `http://127.0.0.1:8788`）。控制台可以：
+
+- 看每个 agent 的 state / connected / turn / usage / cost；
+- 看实时事件时间线（消息、投递、genesis、offline、turn）；
+- 向 all 或某个 agent 注入系统消息；
+- 优雅结束 run；
+- 生成并查看 transcript / metrics / messages。
+
+默认只绑定 loopback，且**没有登录**；不要把它直接暴露到公网。详细说明见 **[WEBCONSOLE.md](WEBCONSOLE.md)**。
+
 ---
 
 ## 1. 它到底怎么跑
@@ -74,6 +93,7 @@ Linux / Windows host
 ┌────────────────────────────────────────────────────────────────────┐
 │  python -m supervisor up                                           │
 │    ├─ Supervisor broker  (aiohttp, 0.0.0.0:8787)                    │
+│    ├─ Web Console (可选 --web, 127.0.0.1:8788)                      │
 │    │    ├─ /v1/agents/{a..n}/register, /stream (SSE), /state       │
 │    │    ├─ /v1/agents/{a..n}/messages   ← agent_chat 的出口         │
 │    │    ├─ /v1/agents/{a..n}/delivered  ← 真正注入后的回执           │
@@ -157,6 +177,7 @@ genesis-lab/
 │   ├── mock_llm.py          #   无 key 的 Anthropic 兼容假模型
 │   ├── settings.py          #   .env、N-agent roster、run token、per-agent token
 │   ├── compose.py           #   按 N 个 agent 生成 runs/<id>/compose.yml
+│   ├── webconsole.py        #   --web 的本地控制台 / SSE
 │   ├── dockerctl.py         #   docker compose 包装
 │   └── store.py             #   JSONL 事件日志
 ├── runtime/                 # 容器内 Python：agent 运行时
@@ -182,6 +203,7 @@ genesis-lab/
 ├── FEATURES.md              #   完整功能清单与限制
 ├── EXTENDING.md             #   自定义 agent / N-agent 扩展
 ├── SDK.md                   #   Python 控制面 API
+├── WEBCONSOLE.md            #   浏览器控制台、API、安全边界
 └── DESIGN.md                #   更细的协议、失败语义、备选方案
 ```
 
@@ -319,7 +341,7 @@ python -m supervisor end --reason "时间到"
 | --- | --- |
 | `python -m supervisor init` | 从 example 生成 `.env` |
 | `python -m supervisor doctor [--mock]` | 检查 Python/Docker/compose/端口/key |
-| `python -m supervisor up [--mock] [--no-build] [--max-seconds N] [--max-messages N]` | 前台运行整个世界 |
+| `python -m supervisor up [--mock] [--no-build] [--max-seconds N] [--max-messages N] [--web]` | 前台运行整个世界；`--web` 同时开浏览器控制台 |
 | `python -m supervisor status` | 打印 broker 状态 JSON |
 | `python -m supervisor say TEXT [--to all\|id\|名字]` | 注入系统消息（id 如 a/b/c） |
 | `python -m supervisor end [--reason ...]` | 优雅结束 |
@@ -350,6 +372,8 @@ python -m supervisor end --reason "时间到"
 | `BROKER_HOST` | `0.0.0.0` | broker 绑定地址；必须是容器可达的地址，勿用 `127.0.0.1` |
 | `BROKER_PORT` | 8787 | 宿主机 broker 端口；容器通过 `host.docker.internal` 访问 |
 | `BROKER_URL` | 空 | 容器内访问 broker 的完整 URL；空 = `http://host.docker.internal:<BROKER_PORT>`；WSL2 + Docker Desktop 或自定义网络时显式设置 |
+| `WEB_CONSOLE_HOST` | `127.0.0.1` | 仅 `--web` 使用；无鉴权，默认 loopback |
+| `WEB_CONSOLE_PORT` | 8788 | Web Console 端口 |
 | `MOCK_LLM_PORT` | 8790 | mock 模式端口 |
 | `BROKER_TOKEN` | 空 | 留空则每次运行随机生成（推荐） |
 | `WORLD_FILE` / `MISSION_FILE` / `GENESIS_FILE` | config/... | prompt 文件路径 |
@@ -414,6 +438,7 @@ print(sum(e["latency_s"] for e in deliveries) / len(deliveries))
 5. **broker 在内存里**。`up` 进程退出后无法恢复该 run（但 JSONL 已落盘）。
 6. 消息默认上限 4000 字符；hook 单次注入预算 8000 字符（Claude Code 的 additionalContext 上限是 10000）。
 7. **agent 个性化配置还没接**：目前 world/mission/genesis 是全局的，per-agent prompt/skill/model/harness 仍待做；N 个 agent 共享同一套模型配置。
+8. **Web Console 无鉴权**：默认只绑定 `127.0.0.1`，且只能在 `up --web` 时随世界启动；没有独立 attach / 从 UI 启动新世界的模式。远程访问请用 SSH 端口转发。
 
 ---
 
@@ -489,6 +514,7 @@ python scripts/check_hygiene.py
 - [FEATURES.md](FEATURES.md)：完整功能清单、硬限制、已知不支持项
 - [EXTENDING.md](EXTENDING.md)：broker HTTP/SSE 协议、自定义 agent、N-agent 改造清单
 - [SDK.md](SDK.md)：Python 控制面 API、生命周期、当前边界
+- [WEBCONSOLE.md](WEBCONSOLE.md)：浏览器控制台、API、安全边界
 - [DESIGN.md](DESIGN.md)：协议细节、失败语义、为什么不用 interrupt / 共享卷 / 直接容器互联
 
 ---
