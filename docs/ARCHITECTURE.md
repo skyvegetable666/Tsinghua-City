@@ -1,6 +1,6 @@
 # Architecture and build-vs-reuse decisions
 
-This document records the choices behind Phase 1 of [Design.md](../Design.md). It is not a second design baseline; Design.md wins when they conflict.
+This document records build-vs-reuse choices through the Phase 3 local-runtime checkpoint. It is not a second design baseline; [Design.md](../Design.md) wins when they conflict. Current state is summarized in [STATUS.md](STATUS.md).
 
 ## 1. The center of gravity
 
@@ -144,7 +144,7 @@ group messaging, board moderation/editing.
   - ~~restart with the same agent identity.~~ (resume rotates token and starts a new process)
   - durable restart policy/leases (next).
 - Message delivery:
-  - reuse the safe-point policy from the prototype if the harness supports it.
+  - reuse the safe-point policy from the archived prototype if the harness supports it.
   - otherwise queue until the next model invocation.
 
 ### Phase 4: Canvas / SDK
