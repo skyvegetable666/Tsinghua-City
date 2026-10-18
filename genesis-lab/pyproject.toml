@@ -1,0 +1,22 @@
+[project]
+name = "genesis-lab"
+version = "0.1.0"
+description = "Two Claude Code agents in two isolated containers, with a Python supervisor"
+requires-python = ">=3.11"
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+markers = [
+  "integration: runs against the real claude CLI and is skipped unless GENESIS_RUN_CLI_TESTS=1",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+# Defensive boundaries (hook/claude/network) intentionally swallow broad
+# exceptions: a failed telemetry or cleanup path must never break an agent turn.
+ignore = ["BLE001", "S110"]

@@ -1,0 +1,12 @@
+# secrets & local state
+.env
+.venv/
+runs/
+*.pyc
+__pycache__/
+.pytest_cache/
+.research/
+
+# OS
+.DS_Store
+Thumbs.db

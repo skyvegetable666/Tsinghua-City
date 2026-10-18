@@ -1,0 +1,63 @@
+name: genesis-lab
+
+x-agent-env: &agent-env
+  RUN_ID: ${RUN_ID:-local}
+  BROKER_URL: ${BROKER_URL:-http://host.docker.internal:8787}
+  AGENT_HARNESS: ${AGENT_HARNESS:-claude}
+  AGENT_LOCAL_PORT: "8765"
+  AGENT_WORKDIR: /work
+  HOOK_BATCH_MAX_CHARS: ${HOOK_BATCH_MAX_CHARS:-8000}
+  MAX_MESSAGE_CHARS: ${MAX_MESSAGE_CHARS:-4000}
+  ANTHROPIC_BASE_URL: ${ANTHROPIC_BASE_URL:-https://api.deepseek.com/anthropic}
+  ANTHROPIC_AUTH_TOKEN: ${ANTHROPIC_AUTH_TOKEN:-}
+  ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-deepseek-flash[1m]}
+  ANTHROPIC_DEFAULT_OPUS_MODEL: ${ANTHROPIC_DEFAULT_OPUS_MODEL:-deepseek-flash[1m]}
+  ANTHROPIC_DEFAULT_SONNET_MODEL: ${ANTHROPIC_DEFAULT_SONNET_MODEL:-deepseek-flash[1m]}
+  ANTHROPIC_DEFAULT_HAIKU_MODEL: ${ANTHROPIC_DEFAULT_HAIKU_MODEL:-deepseek-flash}
+  CLAUDE_CODE_SUBAGENT_MODEL: ${CLAUDE_CODE_SUBAGENT_MODEL:-deepseek-flash}
+  CLAUDE_CODE_EFFORT_LEVEL: ${CLAUDE_CODE_EFFORT_LEVEL:-max}
+  CLAUDE_CODE_AUTO_COMPACT_WINDOW: ${CLAUDE_CODE_AUTO_COMPACT_WINDOW:-786432}
+  CLAUDE_CODE_MAX_CONTEXT_TOKENS: ${CLAUDE_CODE_MAX_CONTEXT_TOKENS:-1000000}
+  CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1"
+  DISABLE_TELEMETRY: "1"
+  DISABLE_ERROR_REPORTING: "1"
+  NO_COLOR: "1"
+
+x-agent: &agent
+  build:
+    context: .
+    dockerfile: image/Dockerfile
+  image: ${AGENT_IMAGE:-genesis-lab-agent:latest}
+  init: true
+  stop_grace_period: 30s
+  extra_hosts:
+    - "host.docker.internal:host-gateway"
+
+services:
+  agent-a:
+    <<: *agent
+    environment:
+      <<: *agent-env
+      AGENT_ID: a
+      AGENT_NAME: ${AGENT_A_NAME:-agent-a}
+      PEER_ID: b
+      PEER_NAME: ${AGENT_B_NAME:-agent-b}
+      AGENT_TOKEN: ${AGENT_TOKEN_A:-dev-agent-a}
+    networks:
+      - net-a
+
+  agent-b:
+    <<: *agent
+    environment:
+      <<: *agent-env
+      AGENT_ID: b
+      AGENT_NAME: ${AGENT_B_NAME:-agent-b}
+      PEER_ID: a
+      PEER_NAME: ${AGENT_A_NAME:-agent-a}
+      AGENT_TOKEN: ${AGENT_TOKEN_B:-dev-agent-b}
+    networks:
+      - net-b
+
+networks:
+  net-a:
+  net-b:
