@@ -7,7 +7,7 @@
 - 如何复用 `runtime.bridge` 的投递机制（内部接口）；
 - 如果要支持 3 个及以上 agent，需要改哪些地方。
 
-功能清单见 [FEATURES.md](FEATURES.md)。
+功能清单见 [FEATURES.md](FEATURES.md)。Python 控制面（World/WorldSpec）见 [SDK.md](SDK.md)；它只封装启动和观测，不改变本文的 broker/agent 协议。
 
 ---
 

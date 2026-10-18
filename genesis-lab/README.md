@@ -14,7 +14,7 @@
 
 **没有 API key 也能先跑通全链路**：`python -m supervisor up --mock` 会用脚本化的假模型替代 DeepSeek。
 
-> 完整功能清单和硬限制见 **[FEATURES.md](FEATURES.md)**；自定义 agent / N-agent 扩展见 **[EXTENDING.md](EXTENDING.md)**。
+> 完整功能清单和硬限制见 **[FEATURES.md](FEATURES.md)**；自定义 agent / N-agent 扩展见 **[EXTENDING.md](EXTENDING.md)**；Python 控制面见 **[SDK.md](SDK.md)**。
 
 ## 0. 能力速览
 
@@ -40,6 +40,30 @@
 所以：**MCP 只是 agent 侧的工具适配器；跨 agent 的“把消息转交给另一个并观测”是 broker + bridge 完成的。** 类比网络：MCP 是 socket API，broker 是路由/队列，hook/idle 是投递时机，events/transcript/metrics 是监控。
 
 “监控”在这里是**实验观测 + 控制**，不是被动抓包：broker 记录每条消息和投递回执，bridge 上报 turn/tool/usage，supervisor 还负责创世、presence、系统通知和结束。
+
+### 0.2 Python SDK（薄控制面）
+
+SDK 只负责**启动、观测、停止世界**，不把 broker 搬进用户进程，也不新增 agent 之间的通道：
+
+```python
+from genesis import World
+
+with World.create(agents=["agent-a", "agent-b"], mock=True, max_seconds=30) as world:
+    print(world.run_id, world.base_url, world.status())
+    world.send_system("operator: 开始。")
+    for event in world.events(follow=True):
+        print(event["event"])
+
+print(world.report()["messages"])
+```
+
+当前 SDK：
+- 仍然只支持 **2 个 agent**；
+- 只封装现有 supervisor，消息仍然走 `agent_chat` → bridge → broker；
+- 提供 `World` / `WorldSpec` / `AgentSpec`、`start/stop/status/events/send_system/report`；
+- 只支持全局 world/mission/genesis；per-agent prompt/skill/model 是后续工作。
+
+完整 API、边界和示例见 **[SDK.md](SDK.md)**。
 
 ---
 
@@ -148,12 +172,15 @@ genesis-lab/
 │   └── genesis.md           #   创世纪模板，可改
 ├── image/Dockerfile         #   node + python + claude-code 固定版本
 ├── docker-compose.yml       #   两个容器、两个隔离网络
+├── genesis/                 #   薄 SDK：World / WorldSpec / AgentSpec
+├── examples/sdk_world.py    #   最小 SDK 用法
 ├── tests/                   #   单测 + 真实 Claude CLI 集成测试
 ├── scripts/check_hygiene.py #   提交前检查 key / runs / 凭据
 ├── .env.example
 ├── README.md
 ├── FEATURES.md              #   完整功能清单与限制
 ├── EXTENDING.md             #   自定义 agent / N-agent 扩展
+├── SDK.md                   #   Python 控制面 API
 └── DESIGN.md                #   更细的协议、失败语义、备选方案
 ```
 
@@ -458,6 +485,7 @@ python scripts/check_hygiene.py
 
 - [FEATURES.md](FEATURES.md)：完整功能清单、硬限制、已知不支持项
 - [EXTENDING.md](EXTENDING.md)：broker HTTP/SSE 协议、自定义 agent、N-agent 改造清单
+- [SDK.md](SDK.md)：Python 控制面 API、生命周期、当前边界
 - [DESIGN.md](DESIGN.md)：协议细节、失败语义、为什么不用 interrupt / 共享卷 / 直接容器互联
 
 ---

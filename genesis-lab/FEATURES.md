@@ -60,6 +60,7 @@
 | 时长/消息预算 | ✅ | `RUN_MAX_SECONDS`、`RUN_MAX_MESSAGES` |
 | 结束 grace | ✅ | `END_GRACE_SECONDS`，给 agent 最后发言/收尾 |
 | 无 key mock | ✅ | `up --mock`：真实 Claude Code + 真实 bridge + 脚本化 Anthropic mock |
+| Python 控制面 SDK | ✅ | [genesis/](genesis/) + [SDK.md](SDK.md)：World/WorldSpec/AgentSpec、start/stop/status/events/send_system/report；薄封装现有 supervisor |
 | Docker 自检 | ✅ | 容器/端口/compose/daemon/key/prompt 文件 |
 | 启动失败标记 | ✅ | 未到 genesis 就结束的 run 标记为 `startup failed` |
 
@@ -78,7 +79,7 @@
 
 | 能力 | 状态 | 说明 |
 | --- | --- | --- |
-| 单元/集成测试 | ✅ | 28 passed, 2 skipped（最近一次） |
+| 单元/集成测试 | ✅ | 39 passed, 2 skipped（最近一次） |
 | 真实 Claude CLI 集成测试 | ✅ | 2 passed，用 mock LLM，不需要真实 key |
 | mock LLM | ✅ | 支持 streaming / 非 streaming、demo / tool_then_end |
 | repo hygiene 脚本 | ✅ | 检查 tracked 文件中的 key、私钥、runs、日志 |
@@ -102,6 +103,7 @@
 
 当前不是通用的 N-agent 注册表，而是**二元世界**：
 
+- `genesis/spec.py` 的 SDK `add_agent` 也最多接受 2 个 agent；
 - `supervisor/settings.py` 的 `AgentSpec` 有单个 `peer_id / peer_name`；
 - `supervisor/broker.py` 的发送校验要求 recipient 是自己的 peer；genesis 等两边都连上；
 - `runtime/bridge.py` 的 `BridgeConfig` 有单个 `PEER_ID/PEER_NAME`；
@@ -120,6 +122,7 @@
 ## 6. 文件地图
 
 - 入口/编排：[supervisor/cli.py](supervisor/cli.py)、[supervisor/broker.py](supervisor/broker.py)
+- Python SDK：[genesis/](genesis/)、[SDK.md](SDK.md)、[examples/sdk_world.py](examples/sdk_world.py)
 - 容器运行时：[runtime/bridge.py](runtime/bridge.py)、[runtime/harness.py](runtime/harness.py)
 - 工具：[runtime/mcp_server.py](runtime/mcp_server.py)
 - 投递格式：[runtime/formatting.py](runtime/formatting.py)
