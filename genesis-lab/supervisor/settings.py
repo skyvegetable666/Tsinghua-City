@@ -64,8 +64,11 @@ def agent_token(run_token: str, agent_id: str) -> str:
 class AgentSpec:
     agent_id: str
     name: str
-    peer_id: str
-    peer_name: str
+    # Deprecated compatibility fields.  N-agent code uses Settings.peers_of();
+    # these only describe the first other agent so old two-agent callers keep
+    # working and old templates that use $peer_name still render.
+    peer_id: str = ""
+    peer_name: str = ""
 
 
 @dataclass
@@ -97,29 +100,101 @@ class Settings:
                 return spec
         return None
 
+    def agent_by_id_or_name(self, value: str) -> AgentSpec | None:
+        return self.agents.get(value) or self.agent_by_name(value)
+
+    def peers_of(self, agent_id: str) -> list[AgentSpec]:
+        return [spec for spec in self.agents.values() if spec.agent_id != agent_id]
+
     def peer(self, agent_id: str) -> AgentSpec:
-        return self.agents[self.agents[agent_id].peer_id]
+        """Deprecated: first other agent.  Prefer peers_of() for N agents."""
+        peers = self.peers_of(agent_id)
+        if not peers:
+            raise KeyError(f"{agent_id} has no peers")
+        return peers[0]
 
     @property
-    def agent_ids(self) -> tuple[str, str]:
-        return ("a", "b")
+    def agent_ids(self) -> tuple[str, ...]:
+        return tuple(self.agents)
+
+    @property
+    def agent_count(self) -> int:
+        return len(self.agents)
+
+
+def _agent_id_for_index(index: int) -> str:
+    """Stable ids: a..z, then a1, b1, ... for larger worlds."""
+    letters = "abcdefghijklmnopqrstuvwxyz"
+    if index < len(letters):
+        return letters[index]
+    return letters[index % len(letters)] + str(index // len(letters))
+
+
+def _agent_names() -> list[str]:
+    raw = os.environ.get("AGENTS", "").strip()
+    if raw:
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"AGENTS must be a JSON array: {exc}") from exc
+        if not isinstance(data, list):
+            raise ValueError("AGENTS must be a JSON array of names or objects")
+        names: list[str] = []
+        for item in data:
+            if isinstance(item, str):
+                names.append(item.strip())
+            elif isinstance(item, dict):
+                name = str(item.get("name") or "").strip()
+                if name:
+                    names.append(name)
+                else:
+                    raise ValueError("each AGENTS object needs a non-empty name")
+            else:
+                raise TypeError("AGENTS entries must be strings or objects")
+        return names
+
+    raw = os.environ.get("AGENT_NAMES", "").strip()
+    if raw:
+        return [name.strip() for name in raw.split(",") if name.strip()]
+
+    name_a = os.environ.get("AGENT_A_NAME", "agent-a").strip()
+    name_b = os.environ.get("AGENT_B_NAME", "agent-b").strip()
+    if not name_a or not name_b:
+        raise ValueError("AGENT_A_NAME and AGENT_B_NAME must be set")
+    return [name_a, name_b]
 
 
 def load_settings(root: Path | None = None, *, env_file: Path | None = None) -> Settings:
     root = (root or PROJECT_ROOT).resolve()
     load_dotenv(env_file or root / ".env")
 
-    name_a = os.environ.get("AGENT_A_NAME", "agent-a").strip()
-    name_b = os.environ.get("AGENT_B_NAME", "agent-b").strip()
-    if not name_a or not name_b or name_a == name_b:
-        raise ValueError("AGENT_A_NAME and AGENT_B_NAME must be set and distinct")
-    if "supervisor" in (name_a, name_b):
+    names = _agent_names()
+    if len(names) < 2:
+        raise ValueError("AGENTS must contain at least two agent names")
+    if any(not name for name in names):
+        raise ValueError("agent names must be non-empty")
+    if len(set(names)) != len(names):
+        raise ValueError(f"agent names must be distinct: {names}")
+    if any(name.lower() == "supervisor" for name in names):
         raise ValueError("agent names must not be 'supervisor'")
 
-    agents = {
-        "a": AgentSpec(agent_id="a", name=name_a, peer_id="b", peer_name=name_b),
-        "b": AgentSpec(agent_id="b", name=name_b, peer_id="a", peer_name=name_a),
-    }
+    ids = [_agent_id_for_index(index) for index in range(len(names))]
+    collisions = set(names) & set(ids)
+    if collisions:
+        raise ValueError(
+            "agent names must not collide with generated ids: "
+            f"{sorted(collisions)}"
+        )
+    agents: dict[str, AgentSpec] = {}
+    for index, (agent_id, name) in enumerate(zip(ids, names, strict=True)):
+        others = [other for other in names if other != name]
+        peers = [ids[names.index(other)] for other in others]
+        agents[agent_id] = AgentSpec(
+            agent_id=agent_id,
+            name=name,
+            peer_id=peers[0] if peers else "",
+            peer_name=others[0] if others else "",
+        )
 
     keys = [
         "ANTHROPIC_BASE_URL",
@@ -211,7 +286,7 @@ def write_json(path: Path, data: dict, *, mode: int = 0o600) -> None:
     tmp.replace(path)
 
 
-def write_current(root: Path, run: RunContext, port: int) -> None:
+def write_current(root: Path, run: RunContext, port: int, *, compose_file: Path | None = None) -> None:
     write_json(
         root / "runs" / "current.json",
         {
@@ -221,6 +296,7 @@ def write_current(root: Path, run: RunContext, port: int) -> None:
             "token": run.token,
             "pid": os.getpid(),
             "started_at": run.started_iso,
+            "compose_file": str(compose_file) if compose_file else None,
         },
     )
 

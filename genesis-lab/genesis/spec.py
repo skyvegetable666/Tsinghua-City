@@ -5,9 +5,8 @@ runtime and observes the run.  These dataclasses are deliberately data-only so
 they can be serialized, compared, and later extended with per-agent prompt,
 skill, harness, and model fields without changing the lifecycle API.
 
-Current backend limit: exactly two agents.  That limit lives in the broker,
-runtime, and compose file, not in the spec, so the spec is ready for N agents
-once those layers are generalized.
+Worlds contain two or more agents.  The broker/runtime/compose layers are
+N-agent; per-agent prompt/skill/model/harness fields are still future work.
 """
 
 from __future__ import annotations
@@ -18,8 +17,8 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
-MAX_AGENTS = 2
-"""Backend limit for the current two-agent broker/compose implementation."""
+MIN_AGENTS = 2
+"""A world needs at least two agents so there is someone to talk to."""
 
 _AGENT_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
 _RESERVED_AGENT_NAMES = {"system", "supervisor", "host", "all", "none"}

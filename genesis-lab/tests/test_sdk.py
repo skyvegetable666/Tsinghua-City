@@ -24,10 +24,11 @@ def test_add_agent_before_start() -> None:
     assert [agent.name for agent in world.agents] == ["alice", "bob"]
 
 
-def test_agent_limit_is_explicit() -> None:
+def test_add_three_agents() -> None:
     world = World.create(agents=["a", "b"])
-    with pytest.raises(WorldError, match="at most 2"):
-        world.add_agent("c")
+    world.add_agent("c")
+    assert [agent.name for agent in world.agents] == ["a", "b", "c"]
+    world._validate_start()
 
 
 def test_duplicate_and_reserved_names() -> None:
@@ -40,15 +41,15 @@ def test_duplicate_and_reserved_names() -> None:
         AgentSpec("../bad")
 
 
-def test_start_requires_exactly_two() -> None:
+def test_start_requires_at_least_two() -> None:
     world = World.create(agents=["only-one"])
-    with pytest.raises(WorldError, match="exactly 2"):
+    with pytest.raises(WorldError, match="at least 2"):
         world._validate_start()
 
 
 def test_prompt_and_env_preparation(tmp_path: Path) -> None:
     genesis = (
-        "$agent_name $peer_name $mission $run_id $genesis_time"
+        "$agent_name $peers $agent_count $mission $run_id $genesis_time"
     )
     world = World.create(
         agents=["alice", "bob"],
@@ -77,6 +78,7 @@ def test_prompt_and_env_preparation(tmp_path: Path) -> None:
     env = world._build_env(tmp_path, spec_dir, 43123)
     assert env["AGENT_A_NAME"] == "alice"
     assert env["AGENT_B_NAME"] == "bob"
+    assert env["AGENTS"] == '["alice", "bob"]'
     assert env["BROKER_PORT"] == "43123"
     assert env["BROKER_HOST"] == "0.0.0.0"
     assert env["WORLD_FILE"] == str(spec_dir / "world.md")
@@ -88,6 +90,13 @@ def test_prompt_and_env_preparation(tmp_path: Path) -> None:
     assert env["RUN_MAX_MESSAGES"] == "7"
     assert env["END_GRACE_SECONDS"] == "3"
     assert env["PYTHONUNBUFFERED"] == "1"
+
+
+def test_three_agent_env(tmp_path: Path) -> None:
+    world = World.create(agents=["alice", "bob", "carol"])
+    world._validate_start()
+    env = world._build_env(tmp_path, tmp_path, 43124)
+    assert json.loads(env["AGENTS"]) == ["alice", "bob", "carol"]
 
 
 def test_bad_genesis_placeholders(tmp_path: Path) -> None:

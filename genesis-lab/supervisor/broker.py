@@ -3,7 +3,7 @@
 Agents in the two containers can only reach the outside world through this
 service. It performs four jobs:
 
-1. Barrier / genesis: wait until both agents are registered and connected, then
+1. Barrier / genesis: wait until all agents are registered and connected, then
    hand each of them its genesis prompt at the same instant.
 2. Routing: every chat message goes through here. It is assigned an id and a
    per-recipient sequence number, appended to the run log, and pushed to the
@@ -261,13 +261,20 @@ class Broker:
             self._log(f"{agent.spec.name} registered (model={agent.model or 'unknown'})")
         await self._maybe_genesis()
 
+        peers = [
+            {"agent_id": peer.agent_id, "name": peer.name}
+            for peer in self.settings.peers_of(agent.spec.agent_id)
+        ]
         return web.json_response(
             {
                 "ok": True,
                 "protocol": PROTOCOL_VERSION,
                 "run_id": self.run.run_id,
                 "self": {"agent_id": agent.spec.agent_id, "name": agent.spec.name},
-                "peer": {"agent_id": agent.spec.peer_id, "name": agent.spec.peer_name},
+                # Legacy two-agent clients read "peer"; N-agent clients read
+                # "peers".  Both are derived from the live roster.
+                "peer": peers[0] if peers else None,
+                "peers": peers,
                 "world_prompt": self.prompts.world,
                 "config": {
                     "max_message_chars": self.settings.max_message_chars,
@@ -484,10 +491,13 @@ class Broker:
         except (json.JSONDecodeError, ValueError):
             return self._error("invalid json")
 
-        recipient_raw = str(body.get("recipient") or agent.spec.peer_name).strip()
-        peer = self.agents[agent.spec.peer_id]
-        if recipient_raw not in (peer.spec.name, peer.spec.agent_id):
-            return self._error(f"recipient must be {peer.spec.name!r}")
+        recipient_raw = str(body.get("recipient") or "").strip()
+        recipient_spec = self.settings.agent_by_id_or_name(recipient_raw)
+        if recipient_spec is None:
+            return self._error(f"unknown recipient {recipient_raw!r}")
+        if recipient_spec.agent_id == agent.spec.agent_id:
+            return self._error("cannot send a message to yourself")
+        peer = self.agents[recipient_spec.agent_id]
         text = str(body.get("text") or "").strip()
         if not text:
             return self._error("message text is empty")
@@ -505,9 +515,9 @@ class Broker:
             )
             existing = self.messages.get(existing_id) if existing_id else None
             if existing is not None:
-                if existing.text != text:
+                if existing.text != text or existing.recipient_id != peer.spec.agent_id:
                     return self._error(
-                        "client_message_id reused with different text", 409
+                        "client_message_id reused with different recipient or text", 409
                     )
                 return web.json_response(self._chat_ack(existing, peer, duplicate=True))
 
@@ -590,7 +600,7 @@ class Broker:
         self._log(f"ending the run: {reason}")
         self._enqueue_system_all(
             "The supervisor is ending the experiment. Reason: "
-            f"{reason}. Finish your current thought and, if you wish, send a final message to your peer. "
+            f"{reason}. Finish your current thought and, if you wish, send a final message to another agent. "
             "The world will be switched off shortly."
         )
         self._ending_task = asyncio.create_task(self._ending_sequence())
@@ -612,7 +622,7 @@ class Broker:
                     },
                 )
             self.store.append("shutdown_sent", reason=self.end_reason, at=now)
-            self._log("shutdown event sent to both agents")
+            self._log(f"shutdown event sent to {len(self.channels)} agents")
         except asyncio.CancelledError:
             raise
         except Exception as exc:  # pragma: no cover - defensive
@@ -685,7 +695,10 @@ class Broker:
             "message_id": message.id,
             "seq": message.seq,
             "queued_at": utc_iso(message.sent_at),
+            "recipient": message.recipient,
+            # Kept for existing bridge/clients; means the recipient's state.
             "peer_state": peer.state,
+            "recipient_state": peer.state,
             "max_message_chars": self.settings.max_message_chars,
         }
         if duplicate:
@@ -723,7 +736,7 @@ class Broker:
         peer_state = self.agents[recipient_id].state
         self._log(
             f"{message.sender} -> {message.recipient} {message.id} "
-            f"({len(text)} chars, peer={peer_state})"
+            f"({len(text)} chars, recipient={peer_state})"
         )
         return message
 
@@ -750,9 +763,12 @@ class Broker:
         self.genesis_at = time.time()
         genesis_iso = utc_iso(self.genesis_at)
         for agent_id, agent in self.agents.items():
+            peers = self.settings.peers_of(agent_id)
             prompt = render_genesis(
                 self.prompts,
                 agent=agent.spec,
+                peers=peers,
+                agent_count=len(self.agents),
                 run_id=self.run.run_id,
                 genesis_time=genesis_iso,
             )
@@ -769,11 +785,15 @@ class Broker:
                 "genesis",
                 agent_id=agent_id,
                 name=agent.spec.name,
+                peers=[peer.name for peer in peers],
                 peer=agent.spec.peer_name,
                 prompt=prompt,
                 genesis_at=self.genesis_at,
             )
-        self._log(f"GENESIS: both agents connected; world is running (run {self.run.run_id})")
+        self._log(
+            f"GENESIS: all {len(self.agents)} agents connected; "
+            f"world is running (run {self.run.run_id})"
+        )
 
     def _schedule_offline(self, agent_id: str) -> None:
         self._cancel_offline(agent_id)
@@ -803,20 +823,20 @@ class Broker:
         self.store.append("agent_offline", agent_id=agent_id, name=agent.spec.name, reason=reason)
         self._log(f"{agent.spec.name} is offline ({reason})")
         if self.phase == "running":
-            peer = self.agents[agent.spec.peer_id]
             text = (
                 f"{agent.spec.name} is now offline. Messages sent to them will be queued "
                 "by the supervisor."
             )
             if reason and reason != "reported offline":
                 text += f" ({reason})"
-            self._enqueue(
-                recipient_id=peer.spec.agent_id,
-                sender_id=None,
-                sender_name="supervisor",
-                kind="system",
-                text=text,
-            )
+            for peer in self.settings.peers_of(agent_id):
+                self._enqueue(
+                    recipient_id=peer.agent_id,
+                    sender_id=None,
+                    sender_name="supervisor",
+                    kind="system",
+                    text=text,
+                )
 
     async def _mark_online(self, agent_id: str) -> None:
         agent = self.agents[agent_id]
@@ -827,11 +847,11 @@ class Broker:
         self.store.append("agent_online", agent_id=agent_id, name=agent.spec.name)
         self._log(f"{agent.spec.name} is back online")
         if was_offline and self.phase == "running":
-            peer = self.agents[agent.spec.peer_id]
-            self._enqueue(
-                recipient_id=peer.spec.agent_id,
-                sender_id=None,
-                sender_name="supervisor",
-                kind="system",
-                text=f"{agent.spec.name} is back online.",
-            )
+            for peer in self.settings.peers_of(agent_id):
+                self._enqueue(
+                    recipient_id=peer.agent_id,
+                    sender_id=None,
+                    sender_name="supervisor",
+                    kind="system",
+                    text=f"{agent.spec.name} is back online.",
+                )

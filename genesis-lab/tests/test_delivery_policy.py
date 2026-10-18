@@ -191,6 +191,26 @@ async def test_agent_chat_validation(runtime):
     assert blocked["ok"] is False
 
 
+async def test_agent_chat_accepts_any_peer_in_n_agent_world(tmp_path):
+    config = BridgeConfig(
+        agent_id="a",
+        agent_name="agent-a",
+        peer_ids=("b", "c"),
+        peer_names=("agent-b", "agent-c"),
+        run_id="run-test",
+        broker_url="http://127.0.0.1:1",
+        broker_token="token",
+        model="mock",
+        workdir=tmp_path,
+    )
+    broker = FakeBroker()
+    runtime = Runtime(config, broker=broker, harness=FakeHarness(), enable_http=False)
+    assert (await runtime.agent_chat("agent-b", "to b"))["ok"] is True
+    assert (await runtime.agent_chat("agent-c", "to c"))["ok"] is True
+    assert (await runtime.agent_chat("agent-a", "to self"))["ok"] is False
+    assert broker.sent == [("agent-b", "to b"), ("agent-c", "to c")]
+
+
 async def test_shutdown_ending_waits_for_final_turn(runtime):
     runtime.state = "idle"
     runtime.harness.working = False

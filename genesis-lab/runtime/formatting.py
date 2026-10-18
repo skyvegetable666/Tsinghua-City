@@ -7,6 +7,8 @@ Two shapes exist:
   factual context, not as an operator command.
 * turn: sent as a normal user message after a turn has ended. This starts a new
   turn and is the fallback when no tool call happened before the turn ended.
+
+The sender is always named.  In an N-agent world, "my peer" is ambiguous.
 """
 
 from __future__ import annotations
@@ -21,19 +23,19 @@ def _utc(ts: float) -> str:
     return datetime.fromtimestamp(ts, tz=UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def _header(message: Message, peer_name: str) -> str:
+def _header(message: Message) -> str:
     if message.is_system:
         return f"[SYSTEM NOTICE from the supervisor | id={message.id} | {_utc(message.sent_at)}]"
-    who = message.sender
-    suffix = "" if who == peer_name else f" from {who}"
-    return f"[PEER MESSAGE{suffix} | id={message.id} | {_utc(message.sent_at)}]"
+    return (
+        f"[PEER MESSAGE from {message.sender} | id={message.id} | "
+        f"{_utc(message.sent_at)}]"
+    )
 
 
 def format_delivery(
     messages: Iterable[Message],
     *,
     channel: str,
-    peer_name: str,
     max_chars: int = 8000,
 ) -> str:
     """Render a batch of messages for injection into Claude's context.
@@ -54,7 +56,7 @@ def format_delivery(
     parts: list[str] = [intro]
     for message in items:
         parts.append("")
-        parts.append(_header(message, peer_name))
+        parts.append(_header(message))
         parts.append(message.text.strip())
 
     text = "\n".join(parts).strip()

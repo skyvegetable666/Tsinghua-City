@@ -1,33 +1,33 @@
 # Genesis Lab
 
-> 两个 Claude Code agent，两个隔离的 Docker 容器，一个 Python supervisor。
+> N 个 Claude Code agent，N 个隔离的 Docker 容器，一个 Python supervisor。
 > agent 之间唯一的通道是 `agent_chat(recipient, message)`；消息全部由 Python 系统路由。
 > 收到消息的 agent **不会被打断当前推理**，消息会在最早的安全点注入。
 
 这是一个可以直接跑的实验台。宿主机（Linux / Windows）上只有一个 Python 程序，它负责：
 
-- 启动两个 Docker 容器；
-- 等待双方就绪，在同一时刻发送 **创世纪（genesis）**；
+- 启动 N 个 Docker 容器（N >= 2）；
+- 等待全部 agent 就绪，在同一时刻发送 **创世纪（genesis）**；
 - 作为消息系统，路由、排队、记账 `agent_chat` 消息；
 - 记录完整事件流（JSONL）、对话稿（transcript）和指标（metrics）；
 - 支持操作者在运行中注入系统消息，或优雅结束实验。
 
 **没有 API key 也能先跑通全链路**：`python -m supervisor up --mock` 会用脚本化的假模型替代 DeepSeek。
 
-> 完整功能清单和硬限制见 **[FEATURES.md](FEATURES.md)**；自定义 agent / N-agent 扩展见 **[EXTENDING.md](EXTENDING.md)**；Python 控制面见 **[SDK.md](SDK.md)**。
+> 完整功能清单和硬限制见 **[FEATURES.md](FEATURES.md)**；自定义 agent / N-agent 现状与剩余工作见 **[EXTENDING.md](EXTENDING.md)**；Python 控制面见 **[SDK.md](SDK.md)**。
 
 ## 0. 能力速览
 
 | 能做 | 当前不能做 |
 | --- | --- |
-| 两个隔离容器中的 Claude Code agent | 3 个及以上 agent（当前固定二元世界） |
+| N >= 2 个隔离容器中的 Claude Code agent | per-agent prompt / skill / model（当前仍是全局 prompt） |
 | 创世屏障、同时启动、可编辑 world/mission/genesis | 生成中途真正注入（只能等安全点） |
 | `agent_chat(recipient, message)` + 不打断投递 | 自动重启 / 断点续跑 |
 | 消息排序、幂等、投递回执、离线/上线通知 | GUI / 结构化消息 / 限流 / 成本上限 |
 | JSONL 事件、transcript、metrics、CLI 控制 | 每消息发送方可见回执 / 多机高可用 |
 | Linux / Windows 宿主机、无 key mock、真实 CLI 集成测试 | 任意语言自定义 agent 目前只能**替换**其中一个 agent |
 
-当前不是 N-agent 框架。要把自定义 agent 接进来，最稳的接口是 broker 的 HTTP/SSE 协议；要新增第三个 agent，需要改控制面和 compose 编排，清单在 [EXTENDING.md](EXTENDING.md)。
+当前是 **N >= 2 的 agent 世界**：任意两个 agent 之间都可以通过 broker 通信；但 agent 个性化配置（per-agent prompt/skill/model/harness）还没接。自定义 agent 的稳定接口仍然是 broker 的 HTTP/SSE 协议。
 
 ### 0.1 架构定位：MCP 在边缘，不是消息总线
 
@@ -58,7 +58,7 @@ print(world.report()["messages"])
 ```
 
 当前 SDK：
-- 仍然只支持 **2 个 agent**；
+- 支持 **N >= 2 个 agent**；
 - 只封装现有 supervisor，消息仍然走 `agent_chat` → bridge → broker；
 - 提供 `World` / `WorldSpec` / `AgentSpec`、`start/stop/status/events/send_system/report`；
 - 只支持全局 world/mission/genesis；per-agent prompt/skill/model 是后续工作。
@@ -74,9 +74,9 @@ Linux / Windows host
 ┌────────────────────────────────────────────────────────────────────┐
 │  python -m supervisor up                                           │
 │    ├─ Supervisor broker  (aiohttp, 0.0.0.0:8787)                    │
-│    │    ├─ /v1/agents/{a,b}/register, /stream (SSE), /state        │
-│    │    ├─ /v1/agents/{a,b}/messages   ← agent_chat 的出口          │
-│    │    ├─ /v1/agents/{a,b}/delivered  ← 真正注入后的回执            │
+│    │    ├─ /v1/agents/{a..n}/register, /stream (SSE), /state       │
+│    │    ├─ /v1/agents/{a..n}/messages   ← agent_chat 的出口         │
+│    │    ├─ /v1/agents/{a..n}/delivered  ← 真正注入后的回执           │
 │    │    └─ runs/<run-id>/events.jsonl, transcript.md, metrics.json │
 │    ├─ Docker Engine                                                 │
 │    │    ├─ agent-a  (仅 net-a)                                      │
@@ -84,17 +84,17 @@ Linux / Windows host
 │    │    │       │              │                                    │
 │    │    │       │              ├─ MCP stdio: agent_chat             │
 │    │    │       │              └─ PostToolBatch hook (本地 HTTP)     │
-│    │    └─ agent-b  (仅 net-b)   同样结构                            │
+│    │    └─ agent-b / agent-c / ...  各自独立 network                │
 │    └─ 可选：Mock LLM (0.0.0.0:8790)，给 --mock 用                  │
 └────────────────────────────────────────────────────────────────────┘
 ```
 
 一次完整生命周期：
 
-1. `supervisor up` 先启动 broker，再 `docker compose up -d`。
-2. 两个容器里的 `runtime.bridge` 分别注册，并建立 SSE 长连接。
-3. **双方都连上**后，broker 在同一微秒级时刻推 `genesis` 事件；两边的 bridge 各自启动一个 Claude Code 进程，把 genesis prompt 作为第一条 user message 写入 stdin。
-4. agent 调 `agent_chat(recipient="agent-b", message="...")`：MCP 进程 → 容器内 bridge → 宿主机 broker。
+1. `supervisor up` 先启动 broker，再为当前 roster 生成 `runs/<id>/compose.yml` 并 `docker compose up -d`。
+2. N 个容器里的 `runtime.bridge` 分别注册，并建立 SSE 长连接。
+3. **全部 agent 都连上**后，broker 在同一微秒级时刻推 `genesis` 事件；每个 bridge 启动一个 Claude Code 进程，把 genesis prompt 作为第一条 user message 写入 stdin。
+4. agent 调 `agent_chat(recipient="agent-c", message="...")`：MCP 进程 → 容器内 bridge → 宿主机 broker。
 5. broker 分配 `message_id` 与接收方序号，写入事件日志，然后经 SSE 推给接收方 bridge。
 6. 接收方按“安全点策略”注入（见下节）。
 7. `supervisor end`（或预算/时长到期）→ 系统通知 → `shutdown` 事件 → agent 收尾 → 容器退出 → 生成报告。
@@ -136,11 +136,11 @@ Linux / Windows host
 
 ---
 
-## 3. 隔离：两个容器互相看不见
+## 3. 隔离：N 个容器互相看不见
 
-- `agent-a` 只接入 `net-a`，`agent-b` 只接入 `net-b`。它们不共享 Docker network，DNS 上也发现不了对方。
-- 不挂载共享卷。两个容器之间没有文件系统通道。
-- 唯一的出口是 `host.docker.internal:<broker-port>` 的 broker；broker 强制 `recipient` 只能是自己的 peer。
+- 每个 `agent-<id>` 只接入自己的 `net-<id>`。它们不共享 Docker network，DNS 上也发现不了对方。
+- 不挂载共享卷。容器之间没有文件系统通道。
+- 唯一的出口是 `host.docker.internal:<broker-port>` 的 broker；broker 只允许发送给**当前 roster 中的其他 agent**。
 - 每个容器拿到的是**独立派生**的 broker token（HMAC(run_token, agent_id)），host 持有 run token。一个容器无法伪装成另一个容器调用 API。
 - 容器内的 bridge 只是 Claude Code 的“进程监护 + 本地 hook/MCP 端点”，不做消息路由；所有路由都在宿主机 Python。
 
@@ -155,7 +155,8 @@ genesis-lab/
 │   ├── cli.py               #   up / down / say / end / status / logs / report
 │   ├── report.py            #   events.jsonl → transcript.md / metrics.json
 │   ├── mock_llm.py          #   无 key 的 Anthropic 兼容假模型
-│   ├── settings.py          #   .env、身份、run token、per-agent token
+│   ├── settings.py          #   .env、N-agent roster、run token、per-agent token
+│   ├── compose.py           #   按 N 个 agent 生成 runs/<id>/compose.yml
 │   ├── dockerctl.py         #   docker compose 包装
 │   └── store.py             #   JSONL 事件日志
 ├── runtime/                 # 容器内 Python：agent 运行时
@@ -171,7 +172,7 @@ genesis-lab/
 │   ├── mission.md           #   本次实验的任务，可改
 │   └── genesis.md           #   创世纪模板，可改
 ├── image/Dockerfile         #   node + python + claude-code 固定版本
-├── docker-compose.yml       #   两个容器、两个隔离网络
+├── docker-compose.yml       #   2-agent 参考；up 会生成 N-agent compose
 ├── genesis/                 #   薄 SDK：World / WorldSpec / AgentSpec
 ├── examples/sdk_world.py    #   最小 SDK 用法
 ├── tests/                   #   单测 + 真实 Claude CLI 集成测试
@@ -262,7 +263,7 @@ python -m supervisor up --mock
 ```
 
 - 首次会 `docker compose build`，通常 2–5 分钟；
-- 两个容器里是真实的 Claude Code，只是 API 指向宿主机的脚本化 mock；
+- N 个容器里是真实的 Claude Code，只是 API 指向宿主机的脚本化 mock；
 - 终端会显示注册、创世、消息投递日志；
 - `Ctrl+C` 结束（会给 agent 发收尾通知后停容器）；
 - 结束后看 `runs/<run-id>/transcript.md`。
@@ -306,7 +307,7 @@ python -m supervisor end --reason "时间到"
 
 - `config/mission.md`：本次任务，插入 genesis；
 - `config/world.md`：世界规则，作为 Claude Code 的 system prompt 附加；
-- `config/genesis.md`：创世纪模板，可用占位符 `$agent_name`、`$peer_name`、`$mission`、`$run_id`、`$genesis_time`。
+- `config/genesis.md`：创世纪模板，可用占位符 `$agent_name`、`$peers`、`$agent_count`、`$mission`、`$run_id`、`$genesis_time`；旧的 `$peer_name` 仍兼容。
 
 改完重启 `up` 即可（容器镜像不用重建）。
 
@@ -320,7 +321,7 @@ python -m supervisor end --reason "时间到"
 | `python -m supervisor doctor [--mock]` | 检查 Python/Docker/compose/端口/key |
 | `python -m supervisor up [--mock] [--no-build] [--max-seconds N] [--max-messages N]` | 前台运行整个世界 |
 | `python -m supervisor status` | 打印 broker 状态 JSON |
-| `python -m supervisor say TEXT [--to all\|a\|b\|名字]` | 注入系统消息 |
+| `python -m supervisor say TEXT [--to all\|id\|名字]` | 注入系统消息（id 如 a/b/c） |
 | `python -m supervisor end [--reason ...]` | 优雅结束 |
 | `python -m supervisor down` | 强制停止容器 |
 | `python -m supervisor logs [--follow] [--run-dir ...]` | 看事件流 |
@@ -337,7 +338,9 @@ python -m supervisor end --reason "时间到"
 | `ANTHROPIC_BASE_URL` | DeepSeek Anthropic 端点 | Claude Code 的 API 网关 |
 | `ANTHROPIC_AUTH_TOKEN` | 空 | API key；没有就 `--mock` |
 | `ANTHROPIC_MODEL` | `deepseek-flash[1m]` | 主模型 |
-| `AGENT_A_NAME` / `AGENT_B_NAME` | `agent-a` / `agent-b` | 双方名字，也是 `agent_chat` 的 recipient |
+| `AGENTS` | 空 | JSON 数组，如 `[{"name":"alice"},{"name":"bob"},{"name":"carol"}]`；优先于下面的名字配置 |
+| `AGENT_NAMES` | 空 | 逗号分隔的名字；`AGENTS` 未设置时使用 |
+| `AGENT_A_NAME` / `AGENT_B_NAME` | `agent-a` / `agent-b` | 兼容旧配置；前两者都为空时使用 |
 | `MAX_MESSAGE_CHARS` | 4000 | 单条消息上限 |
 | `HOOK_BATCH_MAX_CHARS` | 8000 | 单次 hook 注入预算（Claude Code 上限 10000） |
 | `RUN_MAX_MESSAGES` | 0 | 聊天消息数上限，0 = 不限 |
@@ -364,7 +367,7 @@ python -m supervisor end --reason "时间到"
   - `agent_state`、`agent_trace`（assistant 文本、tool_use 名称/参数预览、每回合 usage/cost）；
   - `run_ending`、`shutdown_sent`、`run_ended`。
 - `messages.jsonl`：消息 + 投递记录（report 时生成）；
-- `transcript.md`：按时间排列的双方对话，标注投递渠道与延迟；
+- `transcript.md`：按时间排列的所有 agent 对话，标注投递渠道与延迟；
 - `metrics.json`：消息数、投递渠道分布、延迟分位数、每 agent 回合/token/成本；
 - `run.json`：本次实验的 prompt、配置（密钥已脱敏）、限制、镜像。
 
@@ -385,7 +388,7 @@ print(sum(e["latency_s"] for e in deliveries) / len(deliveries))
 | --- | --- |
 | `docker compose` 找不到 | Docker Desktop / Docker Engine 未启动，CLI 不在 PATH，或 Linux 用户不在 docker 组；`python -m supervisor doctor` |
 | docker permission denied | `sudo usermod -aG docker "$USER"`，然后重新登录（或 `newgrp docker`） |
-| 容器起不来 | `docker compose logs --tail 100 agent-a`；常见是镜像构建失败或 key 为空 |
+| 容器起不来 | `docker compose -f runs/<id>/compose.yml logs --tail 100`；常见是镜像构建失败或 key 为空 |
 | bridge 一直 “waiting for genesis” | 另一个 agent 没连上；看 `logs`；`/health` 看 phase 和 agents |
 | 端口 8787 被占用 | 改 `BROKER_PORT`；或 `down` 旧 run |
 | 容器访问不到 broker | Linux：确认 compose 的 `extra_hosts: host.docker.internal:host-gateway`、`BROKER_HOST=0.0.0.0`，并让 ufw/firewalld 放行 Docker 网段到 8787；Windows：Docker Desktop 自带 `host.docker.internal`，并让防火墙允许 Python。WSL2 + Docker Desktop 见 5.2 |
@@ -393,12 +396,12 @@ print(sum(e["latency_s"] for e in deliveries) / len(deliveries))
 | 真实模型报鉴权/模型错误 | 检查 `ANTHROPIC_BASE_URL` / `ANTHROPIC_AUTH_TOKEN` / `ANTHROPIC_MODEL`；先 `--mock` 排除管道问题 |
 | 出现 `unrecognized_model` 警告 | DeepSeek 模型名不在 Claude Code 模型目录里，属预期；`CLAUDE_CODE_MAX_CONTEXT_TOKENS` 已设置 |
 | 消息很晚才到 | 正常：如果对方在长回合里且没有工具调用，最快也要等回合结束；见第 2 节 |
-| 两个 agent 都不说话 | 看 transcript 里 genesis 是否到达；检查 mission 是否为空；可 `say` 推一把 |
+| 所有 agent 都不说话 | 看 transcript 里 genesis 是否到达；检查 mission 是否为空；可 `say` 推一把 |
 
 日志位置：
 
 - 宿主机：`runs/<id>/events.jsonl`；
-- 容器 stdout：`docker compose logs -f agent-a`（bridge + claude 的 stderr 都在里面）。
+- 容器 stdout：`docker compose -f runs/<id>/compose.yml logs -f`（bridge + claude 的 stderr 都在里面）。
 
 ---
 
@@ -407,10 +410,10 @@ print(sum(e["latency_s"] for e in deliveries) / len(deliveries))
 1. **不存在真正的“生成中途注入”**。无工具长回合里的消息只能等回合结束；这是 API 语义决定的。本设计保证“不打断”，代价是最坏延迟=当前回合剩余时间。
 2. **API key 在容器内可见**。Claude Code 必须拿到 key；有 Bash/Read 的 agent 理论上能读到自己的环境或同 UID 的进程。建议用**专用、限额的 key**，不要把生产 key 放进来。更严格的对抗场景需要 key 代理 + 不同 UID 运行 bridge。
 3. **agent 有 Bash 和网络**。broker token 已从 Claude 子进程环境里移除，容器间也网络隔离；但这不是针对恶意 agent 的强沙箱。若要严格禁止外部通道：去掉 Bash/网络工具，或加 egress proxy。
-4. **没有自动重启/断点续跑**。一个 bridge/Claude 挂了，本次运行继续等另一个；peer 会收到 offline 系统消息。研究实验建议一次 run 一次分析。
+4. **没有自动重启/断点续跑**。一个 bridge/Claude 挂了，本次运行继续等其他 agent；其他 agent 会收到 offline 系统消息。研究实验建议一次 run 一次分析。
 5. **broker 在内存里**。`up` 进程退出后无法恢复该 run（但 JSONL 已落盘）。
 6. 消息默认上限 4000 字符；hook 单次注入预算 8000 字符（Claude Code 的 additionalContext 上限是 10000）。
-7. 单 agent 单次只连一个 peer；recipient 只允许自己的 peer。
+7. **agent 个性化配置还没接**：目前 world/mission/genesis 是全局的，per-agent prompt/skill/model/harness 仍待做；N 个 agent 共享同一套模型配置。
 
 ---
 
@@ -456,7 +459,7 @@ GENESIS_RUN_CLI_TESTS=1 python -m pytest -q tests/test_cli_integration.py tests/
 - 正在跑回合时消息通过 `PostToolBatch` 进入下一个模型请求；
 - idle 时消息通过 stdin 开启新回合；
 - 真实的 `mcp__agentchat__agent_chat` 工具调用能穿过 MCP → bridge → broker；
-- 两个 agent 能互相收发并优雅结束。
+- 多个 agent 能互相收发并优雅结束。
 
 > 单元/真实 CLI 集成测试已在 Linux 上验证；Docker 容器路径（Linux Docker Engine / Windows Docker Desktop）需要按 5.2 / 5.3 在目标平台用 `python -m supervisor up --mock` 做首次确认。
 
@@ -495,7 +498,7 @@ python scripts/check_hygiene.py
 - [ ] Docker Desktop（Windows）或 Docker Engine（Linux）启动，`docker info` 正常
 - [ ] Linux：当前用户在 docker 组；Windows：Docker Desktop 正常运行
 - [ ] `python -m supervisor doctor` 通过
-- [ ] `up --mock` 成功，transcript 里有两条问候
+- [ ] `up --mock` 成功，transcript 里每个 agent 都有问候
 - [ ] 填 key，`up` 成功
 - [ ] 用 `say` / `end` / `report` 观察一次完整 run
 - [ ] 调整 `config/mission.md`，开始正式实验

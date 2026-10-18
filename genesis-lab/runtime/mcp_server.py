@@ -45,19 +45,19 @@ def _call_bridge(recipient: str, message: str) -> dict:
 
 @mcp.tool()
 def agent_chat(recipient: str, message: str) -> str:
-    """Send a chat message to the other agent in this world.
+    """Send a chat message to another agent in this world.
 
-    This is the only communication channel between the two agents. The
-    supervisor routes the message asynchronously: your peer receives it at their
-    next safe boundary (between tool calls, or at the start of a new turn). The
-    call returns immediately and does not wait for a reply.
+    This is the only communication channel between agents. The supervisor
+    routes the message asynchronously: the recipient receives it at their next
+    safe boundary (between tool calls, or at the start of a new turn). The call
+    returns immediately and does not wait for a reply.
 
     Args:
-        recipient: Name of the other agent (your peer), e.g. "agent-b".
+        recipient: Name of another agent (from your genesis roster), e.g. "agent-b".
         message: The message text. Keep it under 4000 characters.
 
     Returns:
-        A JSON object with message_id, peer_state, and delivery information,
+        A JSON object with message_id, recipient_state, and delivery information,
         or an object with ok=false and an error string.
     """
     result = _call_bridge(recipient, message)

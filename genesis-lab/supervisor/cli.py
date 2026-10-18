@@ -19,6 +19,7 @@ from pathlib import Path
 
 from . import dockerctl
 from .broker import Broker
+from .compose import write_compose
 from .mock_llm import MockLLM
 from .prompts import load_prompts
 from .report import build_report
@@ -85,6 +86,24 @@ def _latest_run_dir(root: Path) -> Path:
     return runs[0]
 
 
+def _compose_file_for_down(root: Path) -> Path | None:
+    current = read_current(root)
+    if current and current.get("compose_file"):
+        path = Path(current["compose_file"])
+        if path.exists():
+            return path
+    runs = sorted(
+        (root / "runs").glob("20*"),
+        key=lambda path: path.stat().st_mtime,
+        reverse=True,
+    )
+    for run_dir in runs:
+        candidate = run_dir / "compose.yml"
+        if candidate.is_file():
+            return candidate
+    return None
+
+
 def _container_host_base(settings) -> str:
     """Scheme + host that containers use to reach host services."""
     if settings.broker_url:
@@ -115,10 +134,10 @@ def _compose_env(settings, run, mock: MockLLM | None) -> dict[str, str]:
             "AGENT_IMAGE": settings.agent_image,
             "HOOK_BATCH_MAX_CHARS": str(settings.hook_batch_max_chars),
             "MAX_MESSAGE_CHARS": str(settings.max_message_chars),
-            "AGENT_TOKEN_A": agent_token(run.token, "a"),
-            "AGENT_TOKEN_B": agent_token(run.token, "b"),
         }
     )
+    for agent_id in settings.agents:
+        env[f"AGENT_TOKEN_{agent_id.upper()}"] = agent_token(run.token, agent_id)
     if mock is not None:
         base = f"{_container_host_base(settings)}:{settings.mock_llm_port}"
         env.update(
@@ -176,6 +195,7 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     failures: list[str] = []
     print(f"[INFO] platform: {platform.platform()}")
     print(f"[INFO] containers reach broker at: {_broker_url_for_containers(settings)}")
+    print(f"[INFO] agents: {len(settings.agents)} (ids: {', '.join(settings.agent_ids)})")
 
     def check(name: str, ok: bool, detail: str = "") -> None:
         print(f"[{'PASS' if ok else 'FAIL'}] {name}{(' - ' + detail) if detail else ''}", flush=True)
@@ -265,6 +285,7 @@ def cmd_up(args: argparse.Namespace) -> int:
         settings.run_max_messages = args.max_messages
     prompts = load_prompts(settings)
     run = make_run(settings)
+    compose_path = write_compose(run.run_dir / "compose.yml", settings)
     store = RunStore(run.run_dir, run.run_id)
     store.write_json(
         "run.json",
@@ -278,9 +299,13 @@ def cmd_up(args: argparse.Namespace) -> int:
                 "container_url": _broker_url_for_containers(settings),
             },
             "agents": {
-                spec.agent_id: {"name": spec.name, "peer": spec.peer_name}
+                spec.agent_id: {
+                    "name": spec.name,
+                    "peers": [peer.name for peer in settings.peers_of(spec.agent_id)],
+                }
                 for spec in settings.agents.values()
             },
+            "compose_file": str(compose_path),
             "limits": {
                 "max_message_chars": settings.max_message_chars,
                 "hook_batch_max_chars": settings.hook_batch_max_chars,
@@ -307,28 +332,15 @@ def cmd_up(args: argparse.Namespace) -> int:
             "max_messages": settings.run_max_messages,
             "max_seconds": settings.run_max_seconds,
         },
+        agent_count=len(settings.agents),
+        compose_file=str(compose_path),
     )
 
-    env = dict(os.environ)
-    env.update(
-        {
-            "COMPOSE_PROJECT_NAME": "genesis-lab",
-            "RUN_ID": run.run_id,
-            "BROKER_TOKEN": run.token,
-            "BROKER_PORT": str(settings.broker_port),
-            "BROKER_URL": _broker_url_for_containers(settings),
-            "AGENT_IMAGE": settings.agent_image,
-            "HOOK_BATCH_MAX_CHARS": str(settings.hook_batch_max_chars),
-            "MAX_MESSAGE_CHARS": str(settings.max_message_chars),
-            "AGENT_TOKEN_A": agent_token(run.token, "a"),
-            "AGENT_TOKEN_B": agent_token(run.token, "b"),
-        }
-    )
-
+    env = _compose_env(settings, run, None)
     if not args.no_build:
         print("[supervisor] building the agent image (first run takes a few minutes)...", flush=True)
         try:
-            dockerctl.build(root, env)
+            dockerctl.build(root, env, compose_file=compose_path)
         except dockerctl.DockerError as exc:
             print(f"[supervisor] build failed:\n{exc}", file=sys.stderr)
             store.append("error", where="build", error=str(exc))
@@ -359,7 +371,10 @@ def cmd_up(args: argparse.Namespace) -> int:
                     host="0.0.0.0",
                     mode="demo",
                     log_path=run.run_dir / "mock_llm_requests.jsonl",
-                    roster={spec.name: spec.peer_name for spec in settings.agents.values()},
+                    roster={
+                        spec.name: [peer.name for peer in settings.peers_of(spec.agent_id)]
+                        for spec in settings.agents.values()
+                    },
                 )
                 try:
                     mock.start()
@@ -380,10 +395,13 @@ def cmd_up(args: argparse.Namespace) -> int:
                 print("[supervisor] is another run already active? try: python -m supervisor down", file=sys.stderr)
                 return 1
             started = True
-            write_current(root, run, settings.broker_port)
+            write_current(root, run, settings.broker_port, compose_file=compose_path)
             env_run = _compose_env(settings, run, mock)
-            print("[supervisor] starting the two containers...", flush=True)
-            await asyncio.to_thread(dockerctl.up, root, env_run)
+            print(
+                f"[supervisor] starting {len(settings.agents)} containers...",
+                flush=True,
+            )
+            await asyncio.to_thread(dockerctl.up, root, env_run, compose_file=compose_path)
             print(flush=True)
             print(f"  run id:  {run.run_id}", flush=True)
             print(f"  run dir: {run.run_dir}", flush=True)
@@ -403,7 +421,10 @@ def cmd_up(args: argparse.Namespace) -> int:
             print("[supervisor] stopping containers...", flush=True)
             try:
                 await asyncio.to_thread(
-                    dockerctl.down, root, _compose_env(settings, run, mock)
+                    dockerctl.down,
+                    root,
+                    _compose_env(settings, run, mock),
+                    compose_file=compose_path,
                 )
             except Exception as exc:
                 print(f"[supervisor] warning: could not stop containers: {exc}", file=sys.stderr)
@@ -476,8 +497,8 @@ async def _console_loop(broker: Broker, settings, stop: asyncio.Event) -> None:
                 if both_offline_since is None:
                     both_offline_since = time.monotonic()
                 elif time.monotonic() - both_offline_since > 20.0:
-                    print("[supervisor] both agents disconnected; ending the run", flush=True)
-                    await broker.request_end("both agents disconnected")
+                    print("[supervisor] all agents disconnected; ending the run", flush=True)
+                    await broker.request_end("all agents disconnected")
             else:
                 both_offline_since = None
 
@@ -507,7 +528,8 @@ def cmd_down(args: argparse.Namespace) -> int:
         except SystemExit:
             pass
     try:
-        dockerctl.down(root, dict(os.environ), check=False)
+        compose_file = _compose_file_for_down(root)
+        dockerctl.down(root, dict(os.environ), check=False, compose_file=compose_file)
     except dockerctl.DockerError as exc:
         print(f"docker compose down failed: {exc}", file=sys.stderr)
         return 1
@@ -607,7 +629,8 @@ def _print_event(line: str) -> None:
                 f"{trace.get('stop_reason')} cost={trace.get('cost_usd')}"
             )
     elif kind == "genesis":
-        print(f"{stamp} GENESIS {event.get('name')} (peer {event.get('peer')})")
+        peers = event.get("peers") or ([event.get("peer")] if event.get("peer") else [])
+        print(f"{stamp} GENESIS {event.get('name')} (peers {', '.join(map(str, peers))})")
     elif kind == "agent_state":
         print(f"{stamp} {event.get('name')} state={event.get('state')} turn={event.get('turn')}")
     else:

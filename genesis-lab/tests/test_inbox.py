@@ -61,7 +61,7 @@ def test_take_always_returns_one_message():
 
 def test_format_contains_headers_and_content():
     msgs = [make("m1", "first"), make("m2", "second")]
-    text = format_delivery(msgs, channel="hook", peer_name="agent-b")
+    text = format_delivery(msgs, channel="hook")
     assert "id=m1" in text
     assert "id=m2" in text
     assert "first" in text and "second" in text
@@ -69,12 +69,12 @@ def test_format_contains_headers_and_content():
 
 
 def test_format_system_notice():
-    text = format_delivery([make("s1", "world ending", kind="system")], channel="turn", peer_name="agent-b")
+    text = format_delivery([make("s1", "world ending", kind="system")], channel="turn")
     assert "SYSTEM NOTICE" in text
     assert "world ending" in text
 
 
 def test_format_hard_cap():
-    text = format_delivery([make("m1", "x" * 20_000)], channel="hook", peer_name="agent-b", max_chars=1000)
+    text = format_delivery([make("m1", "x" * 20_000)], channel="hook", max_chars=1000)
     assert len(text) <= 1000
     assert "truncated by supervisor" in text

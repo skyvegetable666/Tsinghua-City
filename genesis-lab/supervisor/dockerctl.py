@@ -10,8 +10,19 @@ class DockerError(RuntimeError):
     pass
 
 
-def _compose(root: Path, args: list[str], *, env: dict[str, str], check: bool = True, capture: bool = False) -> subprocess.CompletedProcess:
-    command = ["docker", "compose", *args]
+def _compose(
+    root: Path,
+    args: list[str],
+    *,
+    env: dict[str, str],
+    check: bool = True,
+    capture: bool = False,
+    compose_file: Path | None = None,
+) -> subprocess.CompletedProcess:
+    command = ["docker", "compose"]
+    if compose_file is not None:
+        command.extend(["-f", str(compose_file)])
+    command.extend(args)
     try:
         process = subprocess.run(
             command,
@@ -69,25 +80,51 @@ def daemon_ok() -> tuple[bool, str]:
     return True, (process.stdout or "").strip()
 
 
-def build(root: Path, env: dict[str, str]) -> None:
-    _compose(root, ["build"], env=env)
+def build(root: Path, env: dict[str, str], *, compose_file: Path | None = None) -> None:
+    _compose(root, ["build"], env=env, compose_file=compose_file)
 
 
-def up(root: Path, env: dict[str, str]) -> None:
-    _compose(root, ["up", "-d", "--remove-orphans"], env=env)
+def up(root: Path, env: dict[str, str], *, compose_file: Path | None = None) -> None:
+    _compose(root, ["up", "-d", "--remove-orphans"], env=env, compose_file=compose_file)
 
 
-def down(root: Path, env: dict[str, str], *, check: bool = False) -> subprocess.CompletedProcess:
-    return _compose(root, ["down", "--remove-orphans"], env=env, check=check)
+def down(
+    root: Path,
+    env: dict[str, str],
+    *,
+    check: bool = False,
+    compose_file: Path | None = None,
+) -> subprocess.CompletedProcess:
+    return _compose(
+        root,
+        ["down", "--remove-orphans"],
+        env=env,
+        check=check,
+        compose_file=compose_file,
+    )
 
 
-def ps(root: Path, env: dict[str, str]) -> str:
-    process = _compose(root, ["ps"], env=env, check=False, capture=True)
+def ps(root: Path, env: dict[str, str], *, compose_file: Path | None = None) -> str:
+    process = _compose(root, ["ps"], env=env, check=False, capture=True, compose_file=compose_file)
     return (process.stdout or "") + (process.stderr or "")
 
 
-def container_logs(root: Path, env: dict[str, str], service: str, tail: int = 100) -> str:
-    process = _compose(root, ["logs", "--no-color", "--tail", str(tail), service], env=env, check=False, capture=True)
+def container_logs(
+    root: Path,
+    env: dict[str, str],
+    service: str,
+    tail: int = 100,
+    *,
+    compose_file: Path | None = None,
+) -> str:
+    process = _compose(
+        root,
+        ["logs", "--no-color", "--tail", str(tail), service],
+        env=env,
+        check=False,
+        capture=True,
+        compose_file=compose_file,
+    )
     return (process.stdout or "") + (process.stderr or "")
 
 

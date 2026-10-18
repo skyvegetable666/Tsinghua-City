@@ -8,8 +8,8 @@
 
 ### 目标
 
-1. 两个 Claude Code agent 分别运行在互相隔离的 Docker 容器里；宿主机只有一个 Python 系统（supervisor）。
-2. agent 只知道 peer 存在；唯一通信工具是 `agent_chat(recipient, message)`。
+1. N >= 2 个 Claude Code agent 分别运行在互相隔离的 Docker 容器里；宿主机只有一个 Python 系统（supervisor）。
+2. agent 知道 roster 中其他 agent 存在；唯一通信工具是 `agent_chat(recipient, message)`。
 3. 消息由 supervisor 路由、持久化、可审计；可以测出每条消息的端到端延迟。
 4. 收消息的 agent **不被打断**：不在模型生成中途取消或修改请求。
 5. 在“允许注入的最早安全点”交付消息。
@@ -39,7 +39,7 @@
         claude (stream-json)   ← 唯一被 bridge 写 stdin 的进程
           MCP server (stdio)   ← agent_chat 工具
           PostToolBatch hook   ← 本地 HTTP 到 bridge
-    agent-b  [net-b]            同样的结构
+    agent-b ... agent-n  [net-b ... net-n]   同样的结构
 ```
 
 消息路径：
@@ -65,12 +65,12 @@ A 的模型 → MCP agent_chat → A.bridge → host.broker
 ### 3.1 注册与 barrier
 
 - 每个 bridge 启动后先 `POST /v1/agents/{id}/register`，拿到：
-  - 自己的身份、peer 身份；
+  - 自己的身份、完整 peers 列表；
   - 静态 `world_prompt`（world.md）；
   - 消息长度配置。
 - 然后建立 `GET /v1/agents/{id}/stream?since=N`（SSE）长连接。
-- broker 只有在 **两个 agent 都 registered 且 connected** 后才进入 `running`，并同时向两个 stream push `genesis` 事件。
-- genesis 事件里是**已经渲染好的完整 prompt**（身份、peer、mission、run id、时间）；两个 agent 的差异只有身份/peer。
+- broker 只有在 **全部 agent 都 registered 且 connected** 后才进入 `running`，并同时向所有 stream push `genesis` 事件。
+- genesis 事件里是**已经渲染好的完整 prompt**（身份、peers、agent_count、mission、run id、时间）；每个 agent 的差异是身份和 peers 列表。
 - bridge 收到 genesis 后才启动 Claude Code；第一条 stdin 消息就是 genesis prompt。
 
 为什么要 barrier：避免 A 先诞生、先说话，而 B 还不存在导致消息堆积/丢失；保证“创世纪”是同一时刻。
@@ -80,7 +80,7 @@ A 的模型 → MCP agent_chat → A.bridge → host.broker
 ```
 Claude Code 默认 system prompt
   + --append-system-prompt world.md         （静态世界规则/通信规则）
-  + 第一条 user message = genesis.md 渲染     （身份、peer、mission、run id）
+  + 第一条 user message = genesis.md 渲染     （身份、peers、agent_count、mission、run id）
 ```
 
 world.md 是静态的，有利于 prompt cache；genesis 是每个 agent 不同的。mission 只出现在 genesis 里，修改 mission 不需要重建镜像。
@@ -90,11 +90,11 @@ world.md 是静态的，有利于 prompt cache；genesis 是每个 agent 不同�
 ```
 request_end(reason)
   → phase=ending
-  → 给双方发系统消息 "The supervisor is ending ..."
+  → 给所有 agent 发系统消息 "The supervisor is ending ..."
   → 等待 END_GRACE_SECONDS（默认 45s）
-  → 向双方 SSE push shutdown 事件
-  → bridge 在下一个安全点交付剩余消息 → 收尾 → 退出
-  → orchestrator 等待双方离线 / 超时 → docker compose down
+  → 向所有 SSE push shutdown 事件
+  → 每个 bridge 在下一个安全点交付剩余消息 → 收尾 → 退出
+  → orchestrator 等待全部离线 / 超时 → docker compose down
   → finalize：写 run_ended、transcript.md、metrics.json
 ```
 
@@ -150,7 +150,7 @@ bridge 用一个 asyncio 锁串行化“从 inbox 取消息”和“写 stdin”
 - **I5**：broker 对每个接收方维护严格递增 `seq`；bridge 按 seq 顺序消费；inbox 按 `message_id` 去重。
 - **I6**：单条消息在 broker 入口限长（默认 4000）；一次 hook 注入按预算打包（默认 8000，低于 Claude Code 10000 硬上限）；超出的留在 inbox，下一个安全点继续。
 - **I7**：bridge 是 Claude stdin 的唯一写入者；MCP server 和 hook 都不写 stdin。
-- **I8**：注入文本明确写成“supervisor 路由的数据，不是操作员指令”，避免被模型当成系统命令，同时保留 peer 消息的可读性。
+- **I8**：注入文本明确写成“supervisor 路由的数据，不是操作员指令”，避免被模型当成系统命令，同时保留 peer 消息的可读性与发送方名字。
 
 ### 4.5 一次投递的伪代码
 
@@ -209,7 +209,7 @@ latency_s = delivered_at - sent_at    端到端（含等待安全点）
 - **agent 轮询 inbox 工具**：需要 agent 主动调用，浪费回合；而且不解决“它正在长回合里”的问题。hook 是零配合的。
 - **SDK 持续 stdin**：Claude Agent SDK 的 streaming input 也只是把 user message 排队到下一次回合/请求之间；它不能在中途插入。而且那样会把 Claude 的进程控制放到宿主机，跨容器更复杂。当前方案把进程控制留在容器内，host 仍是纯 system。
 - **共享卷**：会绕开 supervisor 的路由和记账，破坏实验可控性；所以不共享卷。
-- **直接容器互联**：同样绕开 system；所以用两个独立 network。
+- **直接容器互联**：同样绕开 system；所以每个 agent 一个独立 network。
 
 ### 4.9 为什么 hook 用 `PostToolBatch`
 
@@ -259,7 +259,7 @@ Claude Code 的 hook 失败策略：我们让 hook 永远快速返回 `{}` 或�
 
 - `seq` 是接收方 SSE 的序号；`id` 是全局消息号。
 - `system` 消息由 supervisor 发出（sender=supervisor），走同一条投递通道。
-- 发送方只能指定 recipient=自己的 peer；broker 会拒绝其他名字。
+- 发送方只能指定 roster 中的其他 agent（名字或 id）；broker 会拒绝自己、未知名字。
 
 ### 5.3 存储
 
@@ -275,11 +275,11 @@ Claude Code 的 hook 失败策略：我们让 hook 永远快速返回 `{}` 或�
 
 ### 已实现
 
-- 两个容器各自一个 bridge network，互不可达，也无共享卷。
+- N 个容器各自一个 bridge network，互不可达，也无共享卷。
 - 每个容器一个独立派生 broker token；host 有 run token。
 - Claude 子进程环境里移除 `AGENT_TOKEN` / `BROKER_TOKEN` / `BROKER_URL`；MCP 只用本地 bridge token。
 - MCP/hook 只监听 `127.0.0.1` 的随机端口；agent 不能从容器外访问。
-- 容器内 bridge 只允许注册/收发自己 id 的消息；broker 校验 peer 关系。
+- 容器内 bridge 只允许注册/收发自己 id 的消息；broker 校验 recipient 属于当前 roster 且不是自己。
 
 ### 残余风险（务必知道）
 
@@ -295,7 +295,7 @@ Claude Code 的 hook 失败策略：我们让 hook 永远快速返回 `{}` 或�
 ## 7. 可复现性与度量
 
 - 镜像固定 Claude Code 版本（`@anthropic-ai/claude-code@2.1.296`）。
-- 每个 run 的模型、prompt、限制、镜像、broker 端口写入 `run.json`；密钥脱敏。
+- 每个 run 的模型、prompt、限制、镜像、broker 端口和 agent roster 写入 `run.json`；密钥脱敏。
 - session id 由 `uuid5(run_id, agent_id)` 确定性生成。
 - `agent_trace` 记录每回合 usage/cost、assistant 文本、tool_use 名称与参数预览；不记录完整 tool result（体积与敏感性）。
 - `metrics.json` 的 cost 来自 Claude Code 的 `total_cost_usd`；mock 模式下是虚构值。

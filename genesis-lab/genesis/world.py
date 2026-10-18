@@ -32,7 +32,7 @@ from types import TracebackType
 from typing import Any, Self
 
 from .spec import (
-    MAX_AGENTS,
+    MIN_AGENTS,
     AgentSpec,
     WorldSpec,
     coerce_agent,
@@ -40,7 +40,16 @@ from .spec import (
 )
 
 SDK_ROOT = Path(__file__).resolve().parent.parent
-GENESIS_KEYS = {"agent_name", "peer_name", "mission", "run_id", "genesis_time"}
+GENESIS_KEYS = {
+    "agent_name",
+    "peer_name",
+    "peers",
+    "agent_count",
+    "mission",
+    "run_id",
+    "genesis_time",
+}
+GENESIS_REQUIRED = {"agent_name", "mission", "run_id", "genesis_time"}
 
 
 class WorldError(RuntimeError):
@@ -148,17 +157,12 @@ class World:
         return self._proc
 
     def add_agent(self, agent: str | AgentSpec) -> World:
-        """Register an agent before start.  Current backend supports exactly 2."""
+        """Register an agent before start.  Worlds support N >= 2 agents."""
         if self._started:
             raise WorldError("cannot add an agent after start()")
         spec = coerce_agent(agent)
         if any(existing.name == spec.name for existing in self.spec.agents):
             raise WorldError(f"duplicate agent name: {spec.name}")
-        if len(self.spec.agents) >= MAX_AGENTS:
-            raise WorldError(
-                f"current backend supports at most {MAX_AGENTS} agents; "
-                "see EXTENDING.md for the N-agent plan"
-            )
         self.spec.agents.append(spec)
         return self
 
@@ -196,9 +200,9 @@ class World:
     def _validate_start(self) -> None:
         if self._started:
             raise WorldError("world is already started")
-        if len(self.spec.agents) != MAX_AGENTS:
+        if len(self.spec.agents) < MIN_AGENTS:
             raise WorldError(
-                f"current backend requires exactly {MAX_AGENTS} agents, "
+                f"a world needs at least {MIN_AGENTS} agents, "
                 f"got {len(self.spec.agents)}; call add_agent() before start()"
             )
         names = [agent.name for agent in self.spec.agents]
@@ -227,7 +231,9 @@ class World:
         unknown = identifiers - GENESIS_KEYS
         if unknown:
             raise WorldError(f"genesis_template uses unknown placeholders: {sorted(unknown)}")
-        missing = GENESIS_KEYS - identifiers
+        missing = GENESIS_REQUIRED - identifiers
+        if not ({"peers", "peer_name"} & identifiers):
+            missing.add("peers or peer_name")
         if missing:
             raise WorldError(f"genesis_template is missing placeholders: {sorted(missing)}")
         return world_rules, mission, genesis
@@ -254,6 +260,10 @@ class World:
                 "WORLD_FILE": str(spec_dir / "world.md"),
                 "MISSION_FILE": str(spec_dir / "mission.md"),
                 "GENESIS_FILE": str(spec_dir / "genesis.md"),
+                "AGENTS": json.dumps(
+                    [agent.name for agent in self.spec.agents],
+                    ensure_ascii=False,
+                ),
                 "AGENT_A_NAME": self.spec.agents[0].name,
                 "AGENT_B_NAME": self.spec.agents[1].name,
                 "BROKER_HOST": "0.0.0.0",

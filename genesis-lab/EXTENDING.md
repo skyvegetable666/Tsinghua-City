@@ -2,10 +2,10 @@
 
 本文说明：
 
-- 当前系统的边界（尤其是 agent 数量）；
+- 当前系统的 N-agent 边界；
 - 如何用自定义 agent 替换其中一个 Claude Code；
 - 如何复用 `runtime.bridge` 的投递机制（内部接口）；
-- 如果要支持 3 个及以上 agent，需要改哪些地方。
+- N-agent 已经实现的部分，以及 per-agent 配置还没做的部分。
 
 功能清单见 [FEATURES.md](FEATURES.md)。Python 控制面（World/WorldSpec）见 [SDK.md](SDK.md)；它只封装启动和观测，不改变本文的 broker/agent 协议。
 
@@ -13,23 +13,18 @@
 
 ## 1. 当前边界
 
-**当前世界固定为恰好两个 agent：a 和 b。**
+**当前世界支持 N >= 2 个 agent；ID 是 a, b, c, ...。**
 
-这不是一个 N-agent 注册表。代码里的二元假设：
+N-agent 的核心已经实现：
 
-- `supervisor/settings.py`：`AgentSpec` 只有一个 `peer_id / peer_name`；
-- `supervisor/broker.py`：`h_send_message` 要求 recipient 是自己的 peer；genesis 等双方都连上；
-- `runtime/bridge.py`：`BridgeConfig` 只有一份 `PEER_ID / PEER_NAME`；
-- `docker-compose.yml`：固定 `agent-a` / `agent-b` 两个 service；
-- `config/world.md` / `config/genesis.md`：文案是“两个 agent / 你的 peer”。
+- `AGENTS` JSON / `AGENT_NAMES` / 旧 A/B 配置产生 roster；
+- `Settings.peers_of()` 返回除自己以外的所有 agent；
+- broker 的 register 返回完整 `peers`，send 允许发给任意其他 agent，genesis 等全部连上；
+- `runtime/bridge.py` 使用 `PEER_IDS` / `PEER_NAMES` JSON 列表，register 响应会补全 roster；
+- `supervisor/compose.py` 为 N 个 agent 生成 service/network/token；
+- `config/genesis.md` 使用 `$peers` / `$agent_count`。
 
-不过，**数据面**已经按“每个接收方一个事件通道”组织：
-
-- broker 为每个 agent 维护 `AgentChannel` / history / seq；
-- SSE 按接收方独立；
-- `messages` 字典和 `delivered` 回执天然支持多个接收方。
-
-所以 N-agent 不是推翻重来，主要是控制面、编排和提示词的工作。详见第 6 节。
+**仍未做的是 agent 个性化**：world/mission/genesis 仍是全局的，所有 agent 共享同一模型配置；per-agent prompt/skill/model/harness 是下一步。
 
 ---
 
@@ -41,15 +36,15 @@
 
 - `config/world.md`：世界规则（作为 Claude Code 的 append-system-prompt）；
 - `config/mission.md`：本次任务；
-- `config/genesis.md`：创世纪模板，占位符 `$agent_name`、`$peer_name`、`$mission`、`$run_id`、`$genesis_time`。
+- `config/genesis.md`：创世纪模板，占位符 `$agent_name`、`$peers`、`$agent_count`、`$mission`、`$run_id`、`$genesis_time`；旧的 `$peer_name` 仍兼容。
 
 重启 `python -m supervisor up` 即可，不用重建镜像。
 
 ### B. 用自定义 agent 替换其中一个容器（推荐的外部接口）
 
-保留 broker 和 supervisor，把 `agent-a` 或 `agent-b` 的容器入口换成你自己的程序。你的程序用 HTTP + SSE 直接讲 broker 协议：
+保留 broker 和 supervisor，把 roster 中任意一个 `agent-<id>` 的容器入口换成你自己的程序。你的程序用 HTTP + SSE 直接讲 broker 协议：
 
-1. 用 env `AGENT_ID` / `AGENT_NAME` / `PEER_ID` / `PEER_NAME` / `RUN_ID` / `BROKER_URL` / `AGENT_TOKEN`；
+1. 用 env `AGENT_ID` / `AGENT_NAME` / `PEER_IDS` / `PEER_NAMES` / `RUN_ID` / `BROKER_URL` / `AGENT_TOKEN`；`PEER_ID` / `PEER_NAME` 仍作为单 peer 兼容字段；
 2. register；
 3. 打开 SSE；
 4. 收到 genesis 后开始；
@@ -57,7 +52,7 @@
 6. 用 `POST /messages` 发消息；
 7. 收到 shutdown 后退出。
 
-这样你可以用任意语言/模型/推理循环。**注意它仍然占用二元世界中的一个位置**，不是新增第三个 agent。
+这样你可以用任意语言/模型/推理循环。**注意它占用 roster 中的一个位置**；如果要增加新 agent，需要在 `AGENTS` 里增加名字并让 supervisor 生成对应容器。
 
 ### C. 复用 `runtime.bridge`（Python 内部接口，实验性）
 
@@ -118,6 +113,10 @@ Authorization: Bearer <AGENT_TOKEN>
   "protocol": 1,
   "run_id": "20261018-...",
   "self": {"agent_id": "b", "name": "agent-b"},
+  "peers": [
+    {"agent_id": "a", "name": "agent-a"},
+    {"agent_id": "c", "name": "agent-c"}
+  ],
   "peer": {"agent_id": "a", "name": "agent-a"},
   "world_prompt": "...",
   "config": {
@@ -160,7 +159,7 @@ data: {"reason":"time limit","at":...,"at_iso":"...","hard_deadline_seconds":90}
 - `id` 是该接收方通道的递增 seq；重连时 `since=<last_id>` 可回放之后的事件。
 - 服务端会发 `: ping` 注释；客户端忽略即可。
 - `message` 的 `data` 就是消息对象（见 3.7）。
-- `genesis` 一定在消息之前；**必须保持 SSE 连接**，否则 broker 不会进入 running，另一边也收不到 genesis。
+- `genesis` 一定在消息之前；**必须保持 SSE 连接**，否则 broker 不会进入 running，所有 agent 都收不到 genesis。
 
 ### 3.4 发消息
 
@@ -184,15 +183,18 @@ Content-Type: application/json
   "message_id": "m000001",
   "seq": 2,
   "queued_at": "2026-10-18T06:...Z",
+  "recipient": "agent-a",
+  "recipient_state": "working",
   "peer_state": "working",
   "max_message_chars": 4000
 }
 ```
 
-- `recipient` 只能是自己的 peer（当前二元世界）。
-- `client_message_id` 是幂等键：同一条消息的 HTTP 重试应复用同一个 id；broker 会返回原 message_id 并带 `duplicate: true`。
-- 错误：400（空/超长/recipient 不合法）、409（world 未 running 或 client_message_id 冲突）、401/403（token/路径）。
-- 发送成功不代表 peer 已看到；实际注入后要由 peer 侧 `delivered` 记录。
+- `recipient` 可以是 roster 中**除自己以外的任意 agent**（名字或 id）。
+- `client_message_id` 是幂等键：同一条消息的 HTTP 重试应复用同一个 id；broker 会返回原 message_id 并带 `duplicate: true`；改成不同 recipient/text 会 409。
+- 错误：400（空/超长/自己/未知 recipient）、409（world 未 running 或 client_message_id 冲突）、401/403（token/路径）。
+- 发送成功不代表接收方已看到；实际注入后要由接收方 `delivered` 记录。
+- `peer_state` 是兼容字段；N-agent 客户端应读 `recipient_state` 或 `recipient`。
 
 ### 3.5 投递回执
 
@@ -304,30 +306,21 @@ post(f"/v1/agents/{AGENT_ID}/register", {
 
 ## 4. 把自定义 agent 放进容器
 
-当前 compose 固定两个服务。推荐做法是**替换其中一个服务的 entrypoint**，保留其余环境：
+**当前限制**：`up` 会为 roster 生成 `runs/<id>/compose.yml`，还没有 per-agent image/command 配置；因此“替换某个 agent 的 entrypoint”目前需要改 `supervisor/compose.py`，或先手动用 2-agent 静态 compose 启动。per-agent image/command 会和 per-agent prompt/skill 一起作为后续配置工作。
+
+其他步骤不变：
 
 1. 准备一个镜像（可以 `FROM genesis-lab-agent:latest`，里面已有 Python/aiohttp；也可以完全自己的镜像，只要能访问 broker）；
 2. 把 agent 代码放进镜像；
-3. 用 compose override 覆盖 `agent-b` 的 `entrypoint`：
-
-```yaml
-# docker-compose.override.yml
-services:
-  agent-b:
-    build:
-      context: ./my-agent
-    entrypoint: ["python", "/app/agent.py"]
-```
-
-4. 保留基础 compose 的环境（`AGENT_ID=b`、`AGENT_NAME`、`PEER_*`、`RUN_ID`、`BROKER_URL`、`AGENT_TOKEN` 等已经由 supervisor 注入）；
-5. 仍然用 `python -m supervisor up` 启动。supervisor 会把自定义容器当作 agent-b，和 Claude agent-a 组成二元世界。
+3. 让该 agent 的 service 使用你的 image/entrypoint，并保留 supervisor 注入的环境（`AGENT_ID`、`AGENT_NAME`、`PEER_IDS`、`PEER_NAMES`、`RUN_ID`、`BROKER_URL`、`AGENT_TOKEN` 等）；
+4. 用 `python -m supervisor up` 启动；supervisor 会把自定义容器的注册当作 roster 中的一个 agent。
 
 注意：
 
 - 自定义 agent 必须 register 并打开 SSE，否则创世屏障永远不满足；
-- 如果它不发 `state`，peer 看到的 `peer_state` 可能一直是 `starting`；
+- 如果它不发 `state`，其他 agent 看到的 `recipient_state` 可能一直是 `starting`；
 - 如果它不 ack，日志会显示未投递，但 broker 仍会正常路由；
-- 这不会增加第三个 agent，只是替换 b 的实现。
+- 在 roster 中增加/删除 agent，需要修改 `AGENTS`，而不是只启一个新容器。
 
 ---
 
@@ -364,38 +357,23 @@ asyncio.run(runtime.run())
 
 ---
 
-## 6. 改造成 N 个 agent 的清单
+## 6. N-agent 当前实现与剩余工作
 
-数据面已基本就绪，控制面需要：
+已经实现：
 
-1. **配置/身份**（`supervisor/settings.py`）
-   - 用 `AGENTS` / JSON / 配置文件替代 `AGENT_A_NAME` / `AGENT_B_NAME`；
-   - `AgentSpec` 从单个 peer 改成 peer 列表或显式 allowed recipients；
-   - `Settings.peer()` 改成注册表查询；
-   - run token 派生逻辑支持任意 agent id（`agent_token()` 已支持任意 id）。
-2. **broker**（`supervisor/broker.py`）
-   - `h_register` 返回 roster 而不是单个 peer；
-   - genesis 等 N 个 registered + connected；
-   - `h_send_message` 允许发给任意其他已注册 agent（或按 peer 白名单）；
-   - offline/online 通知发给所有 peer（而不是单个 peer）；
-   - status/metrics 的按 agent 统计已经支持。
-3. **runtime**（`runtime/bridge.py`）
-   - `BridgeConfig` 的 `PEER_ID/PEER_NAME` 改成 `PEERS`（JSON 或逗号列表）；
-   - `agent_chat` 的 recipient 校验改为 allowed peers；
-   - `format_delivery` 的 peer 参数/提示词改成 roster；
-   - `PEER_NAME` 环境变量在 compose 中按 agent 注入。
-4. **编排**（`supervisor/cli.py`、`docker-compose.yml`）
-   - 目前固定 `AGENT_TOKEN_A/B`、两个 service、两个 network；需要生成 N 个 service/network/token；
-   - 可选方案：用 Python 生成 compose 文件（或 `docker run` 循环），再交给 supervisor；
-   - 每个 agent 一个独立 network，保持“互不可见”。
-5. **提示词**
-   - `world.md` / `genesis.md` 从“两个”改成“N 个 + roster”；
-   - `genesis` 里给每个 agent 一个不同的 peer 列表。
-6. **测试/文档**
-   - broker 的 genesis barrier、peer 校验、offline 通知、token 隔离都要覆盖 N；
-   - README/FEATURES/EXTENDING 更新。
+1. **配置/身份**（`supervisor/settings.py`）：`AGENTS` JSON / `AGENT_NAMES` / A/B 兼容；ID 生成；`peers_of()`；`AgentSpec` 的旧 peer 字段只用于兼容。
+2. **broker**（`supervisor/broker.py`）：register 返回 `peers`；genesis 等全部 registered + connected；send 允许任意其他 agent；offline/online 通知所有其他 agent。
+3. **runtime**（`runtime/bridge.py`）：`PEER_IDS` / `PEER_NAMES` JSON 列表；register 响应补全 roster；`agent_chat` 校验任意 peer。
+4. **编排**（`supervisor/compose.py`、`supervisor/cli.py`）：为 N 个 agent 生成 `runs/<id>/compose.yml`，每 agent 一个 service/network/token；current.json 记录 compose 路径。
+5. **提示词**：world/mission/genesis 改成 N-agent；genesis 使用 `$peers` / `$agent_count`。
+6. **测试**：新增 3-agent settings/compose/genesis/routing 测试；旧的 2-agent 集成测试仍通过。
 
-工作量主要在 4 和测试；1-3 是小规模重构。数据模型不需要重写。
+剩余工作：
+
+- **per-agent prompt/skill/model/harness**：`AGENTS` 对象目前只读取 `name`；下一步可以读取 `prompt`、`skills`、`model`、`harness` 并把它们注入 compose/runtime；
+- **WebConsole**：当前只有 CLI/日志/静态报告；
+- **并发多个世界**：compose 项目名/容器名仍固定为 `genesis-lab`，需要动态 project name；
+- **强隔离**：网络/ token 已隔离，但 Bash/同 UID /proc 仍是残余风险。
 
 ---
 

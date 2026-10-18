@@ -84,7 +84,7 @@ class MockLLM:
         log_path: Path | None = None,
         delay_s: float = 0.2,
         tool_command: str = "echo MOCK-TOOL-OK",
-        roster: dict[str, str] | None = None,
+        roster: dict[str, str | list[str]] | None = None,
     ) -> None:
         self.port = port
         self.host = host
@@ -92,9 +92,11 @@ class MockLLM:
         self.log_path = Path(log_path) if log_path else None
         self.delay_s = delay_s
         self.tool_command = tool_command
-        self.roster = dict(
-            roster or {"agent-a": "agent-b", "agent-b": "agent-a"}
-        )
+        raw = roster or {"agent-a": "agent-b", "agent-b": "agent-a"}
+        self.roster: dict[str, list[str]] = {
+            name: ([peer] if isinstance(peer, str) else list(peer))
+            for name, peer in raw.items()
+        }
         self.records: list[dict] = []
         self._lock = threading.Lock()
         self._calls: dict[str, int] = {}
@@ -191,13 +193,13 @@ class MockLLM:
                     for block in content
                     if isinstance(block, dict)
                 )
-        for name, peer in self.roster.items():
+        for name, peers in self.roster.items():
             if f"You are {name}" in first_text:
-                return name, peer
+                return name, (peers[0] if peers else "peer")
         blob = json.dumps(body)
-        for name, peer in self.roster.items():
+        for name, peers in self.roster.items():
             if f"You are {name}" in blob:
-                return name, peer
+                return name, (peers[0] if peers else "peer")
         return "agent", "peer"
 
     def _new_tool_result(self, messages: list[dict]) -> bool:

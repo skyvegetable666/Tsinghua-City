@@ -1,3 +1,7 @@
+# Reference baseline for a two-agent world.
+# `python -m supervisor up` writes runs/<id>/compose.yml for arbitrary N and
+# uses that generated file. This file is kept for manual two-agent runs and
+# documents the common environment.
 name: genesis-lab
 
 x-agent-env: &agent-env
@@ -46,6 +50,8 @@ services:
       AGENT_NAME: ${AGENT_A_NAME:-agent-a}
       PEER_ID: b
       PEER_NAME: ${AGENT_B_NAME:-agent-b}
+      PEER_IDS: '["b"]'
+      PEER_NAMES: '["${AGENT_B_NAME:-agent-b}"]'
       AGENT_TOKEN: ${AGENT_TOKEN_A:-dev-agent-a}
     networks:
       - net-a
@@ -58,6 +64,8 @@ services:
       AGENT_NAME: ${AGENT_B_NAME:-agent-b}
       PEER_ID: a
       PEER_NAME: ${AGENT_A_NAME:-agent-a}
+      PEER_IDS: '["a"]'
+      PEER_NAMES: '["${AGENT_A_NAME:-agent-a}"]'
       AGENT_TOKEN: ${AGENT_TOKEN_B:-dev-agent-b}
     networks:
       - net-b

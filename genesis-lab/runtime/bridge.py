@@ -41,17 +41,30 @@ log = logging.getLogger("runtime.bridge")
 class BridgeConfig:
     agent_id: str
     agent_name: str
-    peer_id: str
-    peer_name: str
     run_id: str
     broker_url: str
     broker_token: str
     model: str
     workdir: Path
+    # Legacy single-peer fields, kept for two-agent envs and tests.  N-agent
+    # runtimes use the tuples below; the register response fills them from the
+    # broker roster even if the container env is incomplete.
+    peer_id: str = ""
+    peer_name: str = ""
+    peer_ids: tuple[str, ...] = ()
+    peer_names: tuple[str, ...] = ()
     local_port: int = 0
     harness: str = "claude"
     hook_batch_max_chars: int = 8000
     max_message_chars: int = 4000
+
+    def __post_init__(self) -> None:
+        # Old tests/custom agents only set the singular peer fields; treat them
+        # as a one-element roster so the tool validation remains usable.
+        if not self.peer_ids and self.peer_id:
+            self.peer_ids = (self.peer_id,)
+        if not self.peer_names and self.peer_name:
+            self.peer_names = (self.peer_name,)
 
     @classmethod
     def from_env(cls) -> BridgeConfig:
@@ -60,6 +73,27 @@ class BridgeConfig:
             if not value:
                 raise SystemExit(f"missing required env var {name}")
             return value
+
+        def names(name: str) -> tuple[str, ...]:
+            raw = os.environ.get(name, "").strip()
+            if not raw:
+                return ()
+            try:
+                data = json.loads(raw)
+            except json.JSONDecodeError:
+                return ()
+            if not isinstance(data, list):
+                return ()
+            return tuple(str(item) for item in data if str(item).strip())
+
+        peer_ids = names("PEER_IDS")
+        peer_names = names("PEER_NAMES")
+        peer_id = os.environ.get("PEER_ID", "").strip()
+        peer_name = os.environ.get("PEER_NAME", "").strip()
+        if not peer_ids and peer_id:
+            peer_ids = (peer_id,)
+        if not peer_names and peer_name:
+            peer_names = (peer_name,)
 
         workdir = Path(os.environ.get("AGENT_WORKDIR", "/work"))
         if not workdir.exists():
@@ -70,8 +104,6 @@ class BridgeConfig:
         return cls(
             agent_id=required("AGENT_ID"),
             agent_name=required("AGENT_NAME"),
-            peer_id=required("PEER_ID"),
-            peer_name=required("PEER_NAME"),
             run_id=required("RUN_ID"),
             broker_url=required("BROKER_URL"),
             broker_token=os.environ.get("AGENT_TOKEN")
@@ -80,6 +112,10 @@ class BridgeConfig:
             or os.environ.get("ANTHROPIC_MODEL")
             or "deepseek-flash[1m]",
             workdir=workdir,
+            peer_id=peer_id,
+            peer_name=peer_name,
+            peer_ids=peer_ids,
+            peer_names=peer_names,
             local_port=int(os.environ.get("AGENT_LOCAL_PORT", "0") or 0),
             harness=os.environ.get("AGENT_HARNESS", "claude").strip() or "claude",
             hook_batch_max_chars=int(os.environ.get("HOOK_BATCH_MAX_CHARS", "8000")),
@@ -205,7 +241,6 @@ class Runtime:
             text = format_delivery(
                 messages,
                 channel="hook",
-                peer_name=self.config.peer_name,
                 max_chars=min(self.config.hook_batch_max_chars, 9000),
             )
             self._schedule_ack(messages, "hook", turn)
@@ -225,10 +260,13 @@ class Runtime:
     async def agent_chat(self, recipient: str, message: str) -> dict:
         if self.ending:
             return {"ok": False, "error": "the experiment is ending; no more messages can be sent"}
-        if recipient not in (self.config.peer_name, self.config.peer_id):
+        recipient = (recipient or "").strip()
+        known = set(self.config.peer_names) | set(self.config.peer_ids)
+        if not recipient or recipient not in known:
+            names = ", ".join(sorted(known)) or "(none yet)"
             return {
                 "ok": False,
-                "error": f"unknown recipient {recipient!r}; your peer is {self.config.peer_name!r}",
+                "error": f"unknown recipient {recipient!r}; known agents: {names}",
             }
         text = (message or "").strip()
         if not text:
@@ -240,7 +278,7 @@ class Runtime:
             }
         try:
             response = await self.broker.send(
-                self.config.peer_name, text, client_message_id=uuid.uuid4().hex
+                recipient, text, client_message_id=uuid.uuid4().hex
             )
         except Exception as exc:
             log.warning("send failed: %s", exc)
@@ -248,10 +286,12 @@ class Runtime:
         return {
             "ok": True,
             "message_id": response.get("message_id"),
-            "peer": self.config.peer_name,
+            "recipient": recipient,
+            "peer": recipient,
             "peer_state": response.get("peer_state"),
+            "recipient_state": response.get("recipient_state"),
             "queued_at": response.get("queued_at"),
-            "info": "queued by the supervisor; it will reach your peer at their next safe boundary",
+            "info": "queued by the supervisor; it will reach the recipient at their next safe boundary",
         }
 
     # ------------------------------------------------------------ delivery path
@@ -272,7 +312,6 @@ class Runtime:
             text = format_delivery(
                 messages,
                 channel="turn",
-                peer_name=self.config.peer_name,
                 max_chars=min(self.config.hook_batch_max_chars, 9000),
             )
             self.state = "working"
@@ -422,10 +461,20 @@ class Runtime:
         else:
             raise RuntimeError(f"could not register with supervisor: {last_error}")
         self.world_prompt = str(response.get("world_prompt") or "")
-        peer = response.get("peer") or {}
-        if peer.get("name"):
-            self.config.peer_name = str(peer["name"])
-            self.config.peer_id = str(peer.get("agent_id") or self.config.peer_id)
+        peers = response.get("peers") or []
+        if peers:
+            self.config.peer_names = tuple(str(peer["name"]) for peer in peers if peer.get("name"))
+            self.config.peer_ids = tuple(
+                str(peer.get("agent_id") or "") for peer in peers if peer.get("agent_id")
+            )
+        elif response.get("peer"):
+            peer = response.get("peer") or {}
+            self.config.peer_names = (str(peer.get("name")),) if peer.get("name") else ()
+            self.config.peer_ids = (str(peer.get("agent_id")),) if peer.get("agent_id") else ()
+        if self.config.peer_names:
+            self.config.peer_name = self.config.peer_names[0]
+        if self.config.peer_ids:
+            self.config.peer_id = self.config.peer_ids[0]
         config = response.get("config") or {}
         if config.get("hook_batch_max_chars"):
             self.config.hook_batch_max_chars = int(config["hook_batch_max_chars"])
@@ -434,9 +483,9 @@ class Runtime:
         self.registered = True
         self.state = "starting"
         log.info(
-            "registered with supervisor as %s (peer %s, run %s)",
+            "registered with supervisor as %s (peers %s, run %s)",
             self.config.agent_name,
-            self.config.peer_name,
+            ", ".join(self.config.peer_names) or "(none)",
             self.config.run_id,
         )
 
@@ -585,10 +634,10 @@ async def _amain() -> int:
     )
     config = BridgeConfig.from_env()
     log.info(
-        "agent runtime starting: %s (%s) peer=%s run=%s harness=%s",
+        "agent runtime starting: %s (%s) peers=%s run=%s harness=%s",
         config.agent_name,
         config.agent_id,
-        config.peer_name,
+        ", ".join(config.peer_names) or "(pending)",
         config.run_id,
         config.harness,
     )

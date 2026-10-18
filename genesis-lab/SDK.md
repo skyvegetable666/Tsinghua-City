@@ -50,14 +50,14 @@ metrics = world.report()
 print(metrics["messages"])
 ```
 
-也可以先创建、再注册：
+也可以先创建、再注册 N 个 agent：
 
 ```python
 from genesis import World
 
 world = World.create(mock=True)
-world.add_agent("alice")
-world.add_agent("bob")
+for name in ("alice", "bob", "carol"):
+    world.register_agent(name)
 world.start()
 try:
     ...
@@ -70,7 +70,7 @@ finally:
 | API | 作用 |
 | --- | --- |
 | `World.create(agents=None, **spec)` | 构造描述，不产生副作用 |
-| `add_agent(name)` / `register_agent(name)` | start 前注册一个 agent；当前最多 2 个（两个名字是别名） |
+| `add_agent(name)` / `register_agent(name)` | start 前注册一个 agent；支持 N >= 2（两个名字是别名） |
 | `start(timeout=...)` | 启动 supervisor，等到 genesis/RUNNING |
 | `status()` | `GET /v1/status` 快照 |
 | `send_system(text, to="all")` | 操作者注入系统消息，不是 agent 工具 |
@@ -107,7 +107,7 @@ SDK 没有提供 `world.agents["a"].send_to("b")` 这种绕过实验语义的接
 
 ## 5. 当前边界
 
-- **恰好 2 个 agent**：broker、runtime、compose 仍是二元世界；`add_agent` 第 3 个会直接报错，指向 [EXTENDING.md](EXTENDING.md)。
+- **至少 2 个 agent**：可以注册任意 N >= 2 个；broker 会等全部 agent 连上后 genesis。
 - **全局 prompt**：world/mission/genesis 仍是全局的；per-agent prompt/skill/model/harness 还没有接。
 - **一个世界一次**：compose 项目名和容器名固定，当前不适合并行跑多个世界。
 - **依赖仓库 checkout**：`project_root` 需要包含 `supervisor/`、`docker-compose.yml`、`config/`；SDK 还不是一个完全自包含的 pip 包。
@@ -128,6 +128,6 @@ SDK 没有提供 `world.agents["a"].send_to("b")` 这种绕过实验语义的接
 
 - 不把 broker 搬进用户进程；
 - 不复制 compile/compose/健康检查逻辑；
-- 不冻结尚未稳定的 N-agent 和 per-agent 配置 API。
+- 不冻结尚未稳定的 per-agent prompt/skill/model/harness 配置 API。
 
 这样 SDK 可以先用起来，后续把 `World` 的 backend 从“子进程 + compose”替换成更正式的 runtime，而不用改用户脚本。

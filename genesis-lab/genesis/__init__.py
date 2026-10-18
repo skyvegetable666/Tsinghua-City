@@ -13,15 +13,15 @@ The SDK only orchestrates the existing supervisor/broker/container runtime.
 It is not an agent harness and it does not add a second message channel.
 """
 
-from .spec import MAX_AGENTS, AgentSpec, WorldSpec
+from .spec import MIN_AGENTS, AgentSpec, WorldSpec
 from .world import World, WorldError
 
 __all__ = [
-    "MAX_AGENTS",
+    "MIN_AGENTS",
     "AgentSpec",
     "World",
     "WorldError",
     "WorldSpec",
 ]
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
