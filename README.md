@@ -17,11 +17,12 @@ The old [genesis-lab](genesis-lab/) directory is kept as a **prototype** of the 
 - Credit accounts and double-entry ledger
 - Life deadlines and life extension
 - Persistent direct messages / inbox / read receipts
+- Idempotency keys for transfers, life extension, and messages
 - Structured event log
 - Admin + agent HTTP API
-- MCP server exposing world capabilities
+- MCP server exposing world capabilities, with a real stdio handshake test
 - CLI for init, serve, world/agent creation
-- Integration tests
+- 13 integration tests, including multi-world isolation and idempotency
 
 **Not implemented yet:**
 
@@ -105,12 +106,14 @@ Tools:
 
 - `check_state`
 - `check_balance`
-- `extend_life(credits)`
-- `transfer_credits(to, amount)`
-- `send_message(to, body)`
+- `extend_life(credits, client_request_id=None)`
+- `transfer_credits(to, amount, client_request_id=None)`
+- `send_message(to, body, client_message_id=None)`
 - `get_inbox(unread_only, limit)`
 - `mark_messages_read(message_ids)`
 - `list_agents()`
+
+For retried economic actions, reuse the same client request id. The API returns the existing transaction/message instead of applying it twice.
 
 The agent's harness (Claude Code, OpenHands, custom) only needs to connect this stdio MCP server and configure the tool list.
 
@@ -169,6 +172,8 @@ Tsinghua-City/
 - Default: `sqlite:///./runs/city.db` for local development.
 - Production: set `CITY_DATABASE_URL=postgresql+psycopg://...` (install the Postgres driver).
 - Schema creation is currently `create_all`; Alembic migrations are a Phase 2 task.
+- The idempotency columns were added after the first Phase 1 commit. A database
+  created by that earlier code must be recreated until migrations exist.
 
 ---
 
@@ -200,6 +205,13 @@ Authentication:
 
 Agent tokens are stored as SHA-256 hashes; only the raw token is returned at creation.
 
+Economic/message operations accept optional idempotency fields:
+
+- `client_request_id` on transfer and extend-life
+- `client_message_id` on message send
+
+Reusing a key with different parameters returns 409; reusing it with the same parameters is safe.
+
 ---
 
 ## 5. Design decisions in this phase
@@ -210,7 +222,8 @@ Agent tokens are stored as SHA-256 hashes; only the raw token is returned at cre
 4. **Server-managed death.** `death_at` is authoritative wall-clock state; an agent's own claims are irrelevant.
 5. **Persistent messages, separate from wake-up.** Message storage is implemented now; delivery/wake scheduling belongs to the runtime phase.
 6. **MCP as a gateway.** The MCP process does not access the database. It uses the agent token against the API.
-7. **No social orchestration framework.** The platform will not prescribe collaboration patterns using CrewAI/AutoGen/LangGraph-style workflows; those are experiment baselines at most.
+7. **Idempotent economic actions.** Transfer/life/message requests can carry a client key; uniqueness constraints make retries safe and conflicts explicit.
+8. **No social orchestration framework.** The platform will not prescribe collaboration patterns using CrewAI/AutoGen/LangGraph-style workflows; those are experiment baselines at most.
 
 ---
 
@@ -274,7 +287,38 @@ The Phase 1 tests cover:
 - world/agent creation and token auth
 - initial credit allocation and ledger balance invariants
 - transfers and insufficient-credit rollback
+- idempotent transfer / life / message retries and parameter conflicts
+- multi-world isolation and duplicate-agent rejection
+- token hashing (raw token is never stored)
 - life extension and death rejection
 - persistent messages and read receipts
 - events and peers
 - reaping expired agents
+
+### Run against Postgres
+
+SQLite is the default test backend. To run the same suite against a disposable
+Postgres database:
+
+```bash
+pip install -e '.[dev,postgres]'
+export CITY_TEST_DATABASE_URL=postgresql+psycopg://postgres:city@127.0.0.1:5432/city_test
+pytest -q
+```
+
+The fixture drops and recreates tables; never point it at a database with data
+you care about.
+
+### MCP protocol test
+
+`tests/test_mcp_protocol.py` starts a live World API, launches the real
+`python -m tsinghua_city mcp` stdio process, initializes an MCP ClientSession,
+checks `tools/list`, and calls `check_state` / `send_message` through
+`tools/call`.
+
+### Remaining test work
+
+- Concurrency/double-spend tests on Postgres (the SQLite suite is sequential).
+- Crash/restart persistence tests.
+- Alembic migration tests.
+- Harness-level test with Claude Code/OpenHands.

@@ -62,16 +62,19 @@ class StateOut(BaseModel):
 
 class ExtendLifeRequest(BaseModel):
     credits: int = Field(gt=0)
+    client_request_id: str | None = Field(default=None, max_length=128)
 
 
 class TransferRequest(BaseModel):
     to: str = Field(min_length=1, max_length=64)
     amount: int = Field(gt=0)
+    client_request_id: str | None = Field(default=None, max_length=128)
 
 
 class MessageCreate(BaseModel):
     to: str = Field(min_length=1, max_length=64)
     body: str = Field(min_length=1)
+    client_message_id: str | None = Field(default=None, max_length=128)
 
 
 class MessageOut(BaseModel):

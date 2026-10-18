@@ -6,11 +6,14 @@ deadlines, messages, and events. API routes and MCP tools are thin adapters.
 
 from __future__ import annotations
 
+import hashlib
+import json
 import re
 import uuid
 from typing import Any
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from .auth import generate_agent_token, token_hash
@@ -30,6 +33,60 @@ class DomainError(Exception):
 
 def _id(prefix: str) -> str:
     return prefix + uuid.uuid4().hex[:24]
+
+
+def _request_id(value: str | None) -> str | None:
+    if value is None:
+        return None
+    value = value.strip()
+    if not value:
+        return None
+    if len(value) > 128:
+        raise DomainError("client_request_id must be at most 128 characters", 400)
+    return value
+
+
+def _request_hash(payload: dict[str, Any]) -> str:
+    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def _find_transaction(
+    session: Session,
+    *,
+    world_id: str,
+    actor_agent_id: str,
+    kind: str,
+    client_request_id: str,
+) -> LedgerTransaction | None:
+    return session.scalars(
+        select(LedgerTransaction).where(
+            LedgerTransaction.world_id == world_id,
+            LedgerTransaction.actor_agent_id == actor_agent_id,
+            LedgerTransaction.kind == kind,
+            LedgerTransaction.client_request_id == client_request_id,
+        )
+    ).one_or_none()
+
+
+def _find_message(
+    session: Session,
+    *,
+    world_id: str,
+    sender_agent_id: str,
+    client_message_id: str,
+) -> Message | None:
+    return session.scalars(
+        select(Message).where(
+            Message.world_id == world_id,
+            Message.sender_agent_id == sender_agent_id,
+            Message.client_message_id == client_message_id,
+        )
+    ).one_or_none()
+
+
+def _same_request(existing_hash: str | None, expected_hash: str) -> bool:
+    return bool(existing_hash) and existing_hash == expected_hash
 
 
 def _world_config(world: World) -> WorldConfig:
@@ -284,6 +341,8 @@ def _post_transfer(
     actor_agent_id: str | None,
     counterparty_agent_id: str | None = None,
     data: dict[str, Any] | None = None,
+    client_request_id: str | None = None,
+    request_hash: str | None = None,
 ) -> LedgerTransaction:
     if amount <= 0:
         raise DomainError("amount must be positive", 400)
@@ -298,6 +357,8 @@ def _post_transfer(
         actor_agent_id=actor_agent_id,
         counterparty_agent_id=counterparty_agent_id,
         amount=amount,
+        client_request_id=client_request_id,
+        request_hash=request_hash,
         data=dict(data or {}),
         created_at=utcnow(),
     )
@@ -322,6 +383,16 @@ def _post_transfer(
     return tx
 
 
+def _extension_result(session: Session, agent: Agent, tx: LedgerTransaction) -> dict[str, Any]:
+    data = tx.data or {}
+    return {
+        "credits_spent": int(data.get("credits") or tx.amount),
+        "seconds_added": int(data.get("seconds") or 0),
+        "death_at": iso(agent.death_at),
+        "balance": account_balance(session, agent),
+    }
+
+
 def transfer(
     session: Session,
     world: World,
@@ -329,39 +400,71 @@ def transfer(
     *,
     to: str,
     amount: int,
+    client_request_id: str | None = None,
 ) -> LedgerTransaction:
-    require_alive(session, agent, world)
+    key = _request_id(client_request_id)
     recipient = _get_agent(session, world.id, to.strip())
     if recipient.id == agent.id:
         raise DomainError("cannot transfer to yourself", 400)
-    if not refresh_alive(session, recipient, world):
-        raise DomainError("recipient is dead", 409)
     if amount <= 0:
         raise DomainError("amount must be positive", 400)
-    debit = _agent_account(session, agent)
-    credit = _agent_account(session, recipient)
-    locked = _locked_accounts(session, debit.id, credit.id)
-    debit, credit = locked[debit.id], locked[credit.id]
-    tx = _post_transfer(
-        session,
-        world,
-        debit=debit,
-        credit=credit,
-        amount=amount,
-        kind="transfer",
-        actor_agent_id=agent.id,
-        counterparty_agent_id=recipient.id,
-        data={"to": recipient.name, "amount": amount},
-    )
-    _emit(
-        session,
-        world.id,
-        "credits.transferred",
-        actor_agent_id=agent.id,
-        data={"to": recipient.name, "amount": amount, "transaction_id": tx.id},
-    )
-    session.commit()
-    return tx
+    request_payload = {"to": recipient.name, "amount": amount}
+    request_hash = _request_hash(request_payload)
+    if key is not None:
+        existing = _find_transaction(
+            session,
+            world_id=world.id,
+            actor_agent_id=agent.id,
+            kind="transfer",
+            client_request_id=key,
+        )
+        if existing is not None:
+            if not _same_request(existing.request_hash, request_hash):
+                raise DomainError("client_request_id reused with a different transfer", 409)
+            return existing
+    require_alive(session, agent, world)
+    if not refresh_alive(session, recipient, world):
+        raise DomainError("recipient is dead", 409)
+    try:
+        debit = _agent_account(session, agent)
+        credit = _agent_account(session, recipient)
+        locked = _locked_accounts(session, debit.id, credit.id)
+        debit, credit = locked[debit.id], locked[credit.id]
+        tx = _post_transfer(
+            session,
+            world,
+            debit=debit,
+            credit=credit,
+            amount=amount,
+            kind="transfer",
+            actor_agent_id=agent.id,
+            counterparty_agent_id=recipient.id,
+            data=request_payload,
+            client_request_id=key,
+            request_hash=request_hash,
+        )
+        _emit(
+            session,
+            world.id,
+            "credits.transferred",
+            actor_agent_id=agent.id,
+            data={"to": recipient.name, "amount": amount, "transaction_id": tx.id},
+        )
+        session.commit()
+        return tx
+    except IntegrityError as exc:
+        session.rollback()
+        if key is not None:
+            existing = _find_transaction(
+                session,
+                world_id=world.id,
+                actor_agent_id=agent.id,
+                kind="transfer",
+                client_request_id=key,
+            )
+            if existing is not None and _same_request(existing.request_hash, request_hash):
+                return existing
+        raise DomainError("concurrent transfer conflict", 409) from exc
 
 
 def extend_life(
@@ -370,47 +473,78 @@ def extend_life(
     agent: Agent,
     *,
     credits: int,
+    client_request_id: str | None = None,
 ) -> dict[str, Any]:
-    require_alive(session, agent, world)
     if credits <= 0:
         raise DomainError("credits must be positive", 400)
     config = _world_config(world)
-    debit = _agent_account(session, agent)
-    system = _system_account(session, world.id)
-    locked = _locked_accounts(session, debit.id, system.id)
-    debit, system = locked[debit.id], locked[system.id]
     seconds = credits * config.seconds_per_credit
-    tx = _post_transfer(
-        session,
-        world,
-        debit=debit,
-        credit=system,
-        amount=credits,
-        kind="life_extension",
-        actor_agent_id=agent.id,
-        data={"credits": credits, "seconds": seconds},
-    )
-    agent.death_at += float(seconds)
-    _emit(
-        session,
-        world.id,
-        "life.extended",
-        actor_agent_id=agent.id,
-        data={
-            "credits": credits,
-            "seconds": seconds,
+    key = _request_id(client_request_id)
+    request_hash = _request_hash({"credits": credits})
+    if key is not None:
+        existing = _find_transaction(
+            session,
+            world_id=world.id,
+            actor_agent_id=agent.id,
+            kind="life_extension",
+            client_request_id=key,
+        )
+        if existing is not None:
+            if not _same_request(existing.request_hash, request_hash):
+                raise DomainError("client_request_id reused with a different extension", 409)
+            return _extension_result(session, agent, existing)
+    require_alive(session, agent, world)
+    try:
+        debit = _agent_account(session, agent)
+        system = _system_account(session, world.id)
+        locked = _locked_accounts(session, debit.id, system.id)
+        debit, system = locked[debit.id], locked[system.id]
+        tx = _post_transfer(
+            session,
+            world,
+            debit=debit,
+            credit=system,
+            amount=credits,
+            kind="life_extension",
+            actor_agent_id=agent.id,
+            data={"credits": credits, "seconds": seconds},
+            client_request_id=key,
+            request_hash=request_hash,
+        )
+        agent.death_at += float(seconds)
+        _emit(
+            session,
+            world.id,
+            "life.extended",
+            actor_agent_id=agent.id,
+            data={
+                "credits": credits,
+                "seconds": seconds,
+                "death_at": iso(agent.death_at),
+                "transaction_id": tx.id,
+            },
+        )
+        session.commit()
+        session.refresh(agent)
+        return {
+            "credits_spent": credits,
+            "seconds_added": seconds,
             "death_at": iso(agent.death_at),
-            "transaction_id": tx.id,
-        },
-    )
-    session.commit()
-    session.refresh(agent)
-    return {
-        "credits_spent": credits,
-        "seconds_added": seconds,
-        "death_at": iso(agent.death_at),
-        "balance": debit.balance,
-    }
+            "balance": debit.balance,
+        }
+    except IntegrityError as exc:
+        session.rollback()
+        if key is not None:
+            existing = _find_transaction(
+                session,
+                world_id=world.id,
+                actor_agent_id=agent.id,
+                kind="life_extension",
+                client_request_id=key,
+            )
+            if existing is not None and _same_request(existing.request_hash, request_hash):
+                return _extension_result(session, agent, existing)
+        raise DomainError("concurrent extension conflict", 409) from exc
 
 
 def send_message(
@@ -420,8 +554,8 @@ def send_message(
     *,
     to: str,
     body: str,
+    client_message_id: str | None = None,
 ) -> Message:
-    require_alive(session, agent, world)
     recipient = _get_agent(session, world.id, to.strip())
     config = _world_config(world)
     body = body.strip()
@@ -432,26 +566,55 @@ def send_message(
             f"message too long ({len(body)} chars); limit is {config.max_message_chars}",
             400,
         )
-    message = Message(
-        id=_id("msg_"),
-        world_id=world.id,
-        sender_agent_id=agent.id,
-        recipient_agent_id=recipient.id,
-        body=body,
-        created_at=utcnow(),
-        read_at=None,
-    )
-    session.add(message)
-    _emit(
-        session,
-        world.id,
-        "message.sent",
-        actor_agent_id=agent.id,
-        data={"message_id": message.id, "to": recipient.name, "length": len(body)},
-    )
-    session.commit()
-    session.refresh(message)
-    return message
+    key = _request_id(client_message_id)
+    request_hash = _request_hash({"to": recipient.name, "body": body})
+    if key is not None:
+        existing = _find_message(
+            session,
+            world_id=world.id,
+            sender_agent_id=agent.id,
+            client_message_id=key,
+        )
+        if existing is not None:
+            if not _same_request(existing.request_hash, request_hash):
+                raise DomainError("client_message_id reused with a different message", 409)
+            return existing
+    require_alive(session, agent, world)
+    try:
+        message = Message(
+            id=_id("msg_"),
+            world_id=world.id,
+            sender_agent_id=agent.id,
+            recipient_agent_id=recipient.id,
+            body=body,
+            client_message_id=key,
+            request_hash=request_hash,
+            created_at=utcnow(),
+            read_at=None,
+        )
+        session.add(message)
+        _emit(
+            session,
+            world.id,
+            "message.sent",
+            actor_agent_id=agent.id,
+            data={"message_id": message.id, "to": recipient.name, "length": len(body)},
+        )
+        session.commit()
+        session.refresh(message)
+        return message
+    except IntegrityError as exc:
+        session.rollback()
+        if key is not None:
+            existing = _find_message(
+                session,
+                world_id=world.id,
+                sender_agent_id=agent.id,
+                client_message_id=key,
+            )
+            if existing is not None and _same_request(existing.request_hash, request_hash):
+                return existing
+        raise DomainError("concurrent message conflict", 409) from exc
 
 
 def inbox(

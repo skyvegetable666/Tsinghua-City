@@ -224,6 +224,7 @@ def create_app(
             auth.world,
             auth.agent,
             credits=body.credits,
+            client_request_id=body.client_request_id,
         )
         return {"ok": True, **result}
 
@@ -238,6 +239,7 @@ def create_app(
             auth.agent,
             to=body.to,
             amount=body.amount,
+            client_request_id=body.client_request_id,
         )
         return {"ok": True, "transaction_id": tx.id, "amount": tx.amount, "to": body.to}
 
@@ -257,6 +259,7 @@ def create_app(
             auth.agent,
             to=body.to,
             body=body.body,
+            client_message_id=body.client_message_id,
         )
         return service.message_view(auth.session, message)
 

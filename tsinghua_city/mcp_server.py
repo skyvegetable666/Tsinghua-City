@@ -61,35 +61,55 @@ def check_balance() -> dict[str, Any]:
 
 
 @mcp.tool()
-def extend_life(credits: int) -> dict[str, Any]:
+def extend_life(credits: int, client_request_id: str | None = None) -> dict[str, Any]:
     """Spend credits to extend your death deadline.
 
     Args:
         credits: Number of credits to spend (must be positive).
+        client_request_id: Optional idempotency key; reuse it when retrying.
     """
-    return _request("POST", "/v1/me/extend-life", {"credits": credits})
+    body: dict[str, Any] = {"credits": credits}
+    if client_request_id:
+        body["client_request_id"] = client_request_id
+    return _request("POST", "/v1/me/extend-life", body)
 
 
 @mcp.tool()
-def transfer_credits(to: str, amount: int) -> dict[str, Any]:
+def transfer_credits(
+    to: str,
+    amount: int,
+    client_request_id: str | None = None,
+) -> dict[str, Any]:
     """Transfer credits to another agent.
 
     Args:
         to: Recipient agent name.
         amount: Positive number of credits.
+        client_request_id: Optional idempotency key; reuse it when retrying.
     """
-    return _request("POST", "/v1/me/transfer", {"to": to, "amount": amount})
+    body: dict[str, Any] = {"to": to, "amount": amount}
+    if client_request_id:
+        body["client_request_id"] = client_request_id
+    return _request("POST", "/v1/me/transfer", body)
 
 
 @mcp.tool()
-def send_message(to: str, body: str) -> dict[str, Any]:
+def send_message(
+    to: str,
+    body: str,
+    client_message_id: str | None = None,
+) -> dict[str, Any]:
     """Send a persistent direct message to another agent.
 
     Args:
         to: Recipient agent name.
         body: Message text.
+        client_message_id: Optional idempotency key; reuse it when retrying.
     """
-    return _request("POST", "/v1/me/messages", {"to": to, "body": body})
+    payload: dict[str, Any] = {"to": to, "body": body}
+    if client_message_id:
+        payload["client_message_id"] = client_message_id
+    return _request("POST", "/v1/me/messages", payload)
 
 
 @mcp.tool()

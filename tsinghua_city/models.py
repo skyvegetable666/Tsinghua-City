@@ -70,7 +70,16 @@ class Account(Base):
 
 class LedgerTransaction(Base):
     __tablename__ = "ledger_transactions"
-    __table_args__ = (Index("ix_transactions_world", "world_id"),)
+    __table_args__ = (
+        Index("ix_transactions_world", "world_id"),
+        UniqueConstraint(
+            "world_id",
+            "actor_agent_id",
+            "kind",
+            "client_request_id",
+            name="uq_transactions_idempotency",
+        ),
+    )
 
     id: Mapped[str] = mapped_column(String(32), primary_key=True)
     world_id: Mapped[str] = mapped_column(ForeignKey("worlds.id", ondelete="CASCADE"), nullable=False)
@@ -82,6 +91,8 @@ class LedgerTransaction(Base):
         ForeignKey("agents.id", ondelete="SET NULL"), nullable=True
     )
     amount: Mapped[int] = mapped_column(Integer, nullable=False)
+    client_request_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    request_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
     data: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
     created_at: Mapped[float] = mapped_column(Float, nullable=False)
 
@@ -105,6 +116,12 @@ class Message(Base):
     __tablename__ = "messages"
     __table_args__ = (
         Index("ix_messages_recipient_created", "recipient_agent_id", "created_at"),
+        UniqueConstraint(
+            "world_id",
+            "sender_agent_id",
+            "client_message_id",
+            name="uq_messages_idempotency",
+        ),
     )
 
     id: Mapped[str] = mapped_column(String(32), primary_key=True)
@@ -116,6 +133,8 @@ class Message(Base):
         ForeignKey("agents.id", ondelete="CASCADE"), nullable=False
     )
     body: Mapped[str] = mapped_column(Text, nullable=False)
+    client_message_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    request_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
     created_at: Mapped[float] = mapped_column(Float, nullable=False)
     read_at: Mapped[float | None] = mapped_column(Float, nullable=True)
 

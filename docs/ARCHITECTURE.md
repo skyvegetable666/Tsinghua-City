@@ -24,9 +24,10 @@ Three planes sit around the state core:
 - Per-agent bearer tokens (SHA-256 at rest).
 - Life deadlines and atomic life extension.
 - Persistent direct messages and read receipts.
-- MCP server (FastMCP) as a stateless API client.
+- Idempotency keys for transfer/life/message retries, backed by uniqueness constraints.
+- MCP server (FastMCP) as a stateless API client; real stdio handshake test.
 - CLI: init, serve, create-world, create-agent, mcp.
-- Integration tests on SQLite.
+- Integration tests on SQLite, with optional Postgres test URL.
 
 Phase 1 deliberately does **not** include tasks, public board, runtime manager, Web Canvas, or memory.
 
@@ -79,6 +80,13 @@ Phase 1 deliberately does **not** include tasks, public board, runtime manager, 
 8. The runtime adapter can stop/start processes, but cannot unilaterally change world state.
 
 ## 7. Migration phases
+
+### Phase 1.1: hardening before tasks
+
+- ~~Real MCP stdio protocol test~~ (done).
+- Concurrency tests for double-spend and idempotent retry on Postgres.
+- Crash/restart persistence test.
+- Alembic baseline.
 
 ### Phase 2: society mechanisms
 

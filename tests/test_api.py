@@ -72,6 +72,63 @@ def test_transfer_is_atomic_and_ledger_balanced(client, admin_headers, session_f
     assert self_transfer.status_code == 400
 
 
+def test_idempotent_transfer(client, admin_headers, session_factory):
+    world = create_world(client, admin_headers)
+    alice = create_agent(client, admin_headers, world["id"], "alice")
+    create_agent(client, admin_headers, world["id"], "bob")
+    body = {"to": "bob", "amount": 25, "client_request_id": "req-1"}
+
+    first = client.post("/v1/me/transfer", headers=agent_headers(alice), json=body)
+    second = client.post("/v1/me/transfer", headers=agent_headers(alice), json=body)
+    assert first.status_code == second.status_code == 200
+    assert first.json()["transaction_id"] == second.json()["transaction_id"]
+    assert client.get("/v1/me/balance", headers=agent_headers(alice)).json()["balance"] == 75
+    with session_factory() as session:
+        assert session.scalar(select(func.count(LedgerTransaction.id))) == 3
+
+    conflict = client.post(
+        "/v1/me/transfer",
+        headers=agent_headers(alice),
+        json={"to": "bob", "amount": 26, "client_request_id": "req-1"},
+    )
+    assert conflict.status_code == 409
+
+
+def test_idempotent_life_and_message(client, admin_headers):
+    world = create_world(client, admin_headers)
+    alice = create_agent(client, admin_headers, world["id"], "alice")
+    bob = create_agent(client, admin_headers, world["id"], "bob")
+
+    body = {"credits": 5, "client_request_id": "life-1"}
+    first = client.post("/v1/me/extend-life", headers=agent_headers(alice), json=body)
+    second = client.post("/v1/me/extend-life", headers=agent_headers(alice), json=body)
+    assert first.status_code == second.status_code == 200
+    assert first.json()["death_at"] == second.json()["death_at"]
+    assert client.get("/v1/me/balance", headers=agent_headers(alice)).json()["balance"] == 95
+
+    conflict = client.post(
+        "/v1/me/extend-life",
+        headers=agent_headers(alice),
+        json={"credits": 6, "client_request_id": "life-1"},
+    )
+    assert conflict.status_code == 409
+
+    msg = {"to": "bob", "body": "once", "client_message_id": "msg-1"}
+    first_msg = client.post("/v1/me/messages", headers=agent_headers(alice), json=msg)
+    second_msg = client.post("/v1/me/messages", headers=agent_headers(alice), json=msg)
+    assert first_msg.status_code == second_msg.status_code == 201
+    assert first_msg.json()["id"] == second_msg.json()["id"]
+    inbox = client.get("/v1/me/messages", headers=agent_headers(bob)).json()
+    assert len(inbox) == 1
+
+    conflict_msg = client.post(
+        "/v1/me/messages",
+        headers=agent_headers(alice),
+        json={"to": "bob", "body": "different", "client_message_id": "msg-1"},
+    )
+    assert conflict_msg.status_code == 409
+
+
 def test_life_extension(client, admin_headers):
     world = create_world(client, admin_headers)
     alice = create_agent(client, admin_headers, world["id"], "alice")
@@ -144,6 +201,37 @@ def test_messages_and_read_receipts(client, admin_headers):
         json={"message_ids": [message["id"]]},
     )
     assert wrong_reader.json()["changed"] == 0
+
+
+def test_multi_world_isolation_and_duplicate_agent(client, admin_headers, session_factory):
+    one = create_world(client, admin_headers, name="one")
+    two = create_world(client, admin_headers, name="two")
+    alice_one = create_agent(client, admin_headers, one["id"], "alice")
+    alice_two = create_agent(client, admin_headers, two["id"], "alice")
+    create_agent(client, admin_headers, two["id"], "bob")
+
+    assert client.get("/v1/me", headers=agent_headers(alice_one)).json()["agent"]["world_id"] == one["id"]
+    assert client.get("/v1/me", headers=agent_headers(alice_two)).json()["agent"]["world_id"] == two["id"]
+
+    missing = client.post(
+        "/v1/me/transfer",
+        headers=agent_headers(alice_one),
+        json={"to": "bob", "amount": 1},
+    )
+    assert missing.status_code == 404
+
+    duplicate = client.post(
+        f"/v1/worlds/{one['id']}/agents",
+        headers=admin_headers,
+        json={"name": "alice"},
+    )
+    assert duplicate.status_code == 409
+
+    with session_factory() as session:
+        row = session.get(Agent, alice_one["id"])
+        assert row is not None
+        assert row.token_hash != alice_one["token"]
+        assert len(row.token_hash) == 64
 
 
 def test_peers_and_events(client, admin_headers):

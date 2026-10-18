@@ -1,6 +1,17 @@
-"""Shared SQLite/FastAPI fixtures for the world service."""
+"""Shared API fixtures.
+
+By default tests use an in-memory SQLite database. To run the same suite against
+Postgres, install the postgres extra and set:
+
+    CITY_TEST_DATABASE_URL=postgresql+psycopg://user:pass@host:5432/city_test
+
+The test database is dropped/recreated by the fixture; never point this at a
+database whose contents matter.
+"""
 
 from __future__ import annotations
+
+import os
 
 import pytest
 from fastapi.testclient import TestClient
@@ -9,19 +20,26 @@ from sqlalchemy.pool import StaticPool
 
 from tsinghua_city.api import create_app
 from tsinghua_city.config import Settings
-from tsinghua_city.db import init_db, make_session_factory
+from tsinghua_city.db import init_db, make_engine, make_session_factory
+from tsinghua_city.models import Base
 
 ADMIN = "admin-token"
 
 
 @pytest.fixture
 def engine():
-    engine = create_engine(
-        "sqlite://",
-        connect_args={"check_same_thread": False},
-        poolclass=StaticPool,
-    )
-    init_db(engine)
+    url = os.environ.get("CITY_TEST_DATABASE_URL", "").strip()
+    if url:
+        engine = make_engine(url)
+        Base.metadata.drop_all(engine)
+        init_db(engine)
+    else:
+        engine = create_engine(
+            "sqlite://",
+            connect_args={"check_same_thread": False},
+            poolclass=StaticPool,
+        )
+        init_db(engine)
     yield engine
     engine.dispose()
 
