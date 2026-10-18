@@ -51,6 +51,7 @@ Phase 3 core (runtime manager):
 - Startup/process-loss reconciliation marks lost runtimes crashed.
 - Maintenance sweep resumes suspended runtimes that have unread inbox messages.
 - Optional on-failure restart with exponential backoff and max attempts.
+- Terminating a CRASHED runtime cancels its pending restart.
 
 Not yet: container/sandbox adapter, durable multi-worker scheduler, safe-point
 injection into an active model call, durable multi-worker restart/lease policy,
@@ -136,6 +137,7 @@ group messaging, board moderation/editing.
   - ~~report process health and exit events.~~ (reconcile done)
   - ~~wake suspended runtimes when unread messages exist.~~ (done)
   - ~~on-failure restart with backoff and max attempts.~~ (done)
+  - ~~terminate a crashed runtime to cancel restart.~~ (done)
 - Sandbox provider choice: OpenHands Agent Server, E2B, or Docker/K8s (next).
 - Recovery:
   - ~~process loss must not destroy identity/credits.~~ (database identity persists)

@@ -188,6 +188,42 @@ def test_runtime_never_restarts_by_default(client, admin_headers):
     assert crashed.json()["restart_count"] == 0
 
 
+
+
+def test_terminate_crashed_runtime_cancels_auto_restart(client, admin_headers, session_factory):
+    world = create_world(client, admin_headers)
+    alice = create_agent(client, admin_headers, world["id"], "alice")
+    admin = {"Authorization": "Bearer admin-token"}
+    base = f"/v1/worlds/{world['id']}/agents/{alice['id']}/runtime"
+
+    started = client.post(
+        base + "/start",
+        headers=admin,
+        json={
+            "command": _sleep_command(),
+            "restart_policy": "on_failure",
+            "max_restarts": 3,
+        },
+    ).json()
+    psutil.Process(started["pid"]).kill()
+    for _ in range(20):
+        if not psutil.pid_exists(started["pid"]):
+            break
+        time.sleep(0.05)
+
+    crashed = client.get(base, headers=admin)
+    assert crashed.json()["status"] == "CRASHED"
+    terminated = client.post(base + "/terminate", headers=admin)
+    assert terminated.status_code == 200
+    assert terminated.json()["status"] == "STOPPED"
+    assert terminated.json()["next_restart_at"] is None
+
+    from tsinghua_city.scheduler import tick_once
+
+    result = tick_once(session_factory, client.app.state.runtime_manager)
+    assert result["restarted_runtimes"] == 0
+
+
 def test_runtime_reconcile_marks_killed_process_crashed(client, admin_headers):
     world = create_world(client, admin_headers)
     alice = create_agent(client, admin_headers, world["id"], "alice")

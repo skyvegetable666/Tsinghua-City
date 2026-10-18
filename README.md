@@ -219,7 +219,10 @@ Tsinghua-City/
   `tsinghua-city upgrade` apply `migrations/` up to `0005_runtime_restart`.
 - Tests and the app factory still use `create_all` for disposable test databases.
 - `tsinghua-city tick` runs one maintenance sweep; `serve` starts an in-process
-  scheduler (interval via `CITY_SCHEDULER_INTERVAL_SECONDS`).
+  scheduler (interval via `CITY_SCHEDULER_INTERVAL_SECONDS`). If a server is
+  running, its scheduler may perform the wake/restart before a manual `tick`;
+  disable the server scheduler or inspect the runtime state when testing a
+  manual tick.
 - A database created by the first Phase 1 commit has no Alembic version and must
   be recreated/migrated manually.
 
@@ -341,6 +344,7 @@ Reusing a key with different parameters returns 409; reusing it with the same pa
 - [x] startup/process-loss reconciliation
 - [x] wake suspended runtimes on unread messages
 - [x] optional on-failure restart with backoff and max attempts
+- [x] terminate crashed runtime to cancel restart
 - [ ] container/sandbox adapter (OpenHands SDK/Agent Server, E2B, Docker/K8s)
 - [ ] safe-point injection into an active model call
 - [ ] durable multi-worker recovery / leases
@@ -376,7 +380,7 @@ It is **not** the authority for world state and should not be the place where cr
 .venv/bin/pytest -q
 ```
 
-Default result: **28 passed, 2 skipped**. The two skipped tests are
+Default result: **29 passed, 2 skipped**. The two skipped tests are
 Postgres-only concurrency checks.
 
 On Windows machines with a system/WinINET proxy (for example Clash), set:
@@ -410,6 +414,7 @@ Tests cover:
 - runtime does not leak server environment secrets
 - unread message wakes a suspended runtime
 - on-failure runtime restart with attempt limits
+- terminating a crashed runtime cancels its restart
 - locked accounts refresh stale identity-map balances
 - Alembic baseline + 0002/0003/0004/0005 migrations
 

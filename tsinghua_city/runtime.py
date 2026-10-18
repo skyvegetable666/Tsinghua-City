@@ -354,10 +354,11 @@ class RuntimeManager:
         runtime = self.get_runtime(session, world, agent)
         if runtime is None:
             raise service.DomainError("runtime not found", 404)
-        if runtime.status not in {RUNNING, SUSPENDED}:
+        if runtime.status not in {RUNNING, SUSPENDED, CRASHED, LOST}:
             raise service.DomainError(f"runtime is not stoppable ({runtime.status})", 409)
         exit_code = self.adapter.stop(runtime)
         service.rotate_agent_token(session, agent)
+        runtime.next_restart_at = None
         runtime.status = status
         runtime.exit_code = exit_code
         runtime.pid = None
