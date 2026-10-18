@@ -11,7 +11,7 @@ This repository is currently an **alpha / single-node lab checkpoint**, not a pr
 - Milestone history: [docs/CHANGELOG.md](docs/CHANGELOG.md)
 
 - **Code checkpoint:** `9e4c066`
-- **Local test result:** `33 passed, 2 skipped`
+- **Local test result:** `35 passed, 2 skipped`
 - **Old prototype:** frozen under `archive/genesis-lab/` (zero runtime imports)
 
 ---
@@ -49,6 +49,7 @@ This repository is currently an **alpha / single-node lab checkpoint**, not a pr
 - terminate a crashed runtime to cancel restart
 - deterministic reference MCP harness with per-agent JSONL journals
 - two-agent demo orchestration
+- early Canvas at `/canvas`: worlds, agents, runtimes, tasks, posts, events
 
 ### Interfaces
 
@@ -65,8 +66,8 @@ This repository is currently an **alpha / single-node lab checkpoint**, not a pr
 - **no container/OpenHands/E2B adapter**
 - **no safe-point injection into an active model call**
 - **no durable multi-worker runtime leases**
-- **no Canvas/UI**; Swagger/API only
-- **no bundled agent harness** that autonomously uses MCP
+- **Canvas is an early admin monitor**, not the final experiment UI
+- **the bundled harness is deterministic**, not model-driven
 - **no experiment manifest/run comparison**
 - **no named external-employer budgets**
 - **no memory system**
@@ -127,6 +128,16 @@ The MCP process is stateless and talks to the World API.
 - configure on-failure restart and inspect restart counts
 
 Use Swagger at `/docs` for the admin and agent routes.
+
+A lightweight Canvas is available at:
+
+~~~text
+http://127.0.0.1:8000/canvas
+~~~
+
+Paste the admin token, select a world, and watch agents, balances, runtimes,
+tasks, posts, and events. It is an alpha monitoring/bootstrap UI, not the final
+experiment Canvas.
 
 ### Two-agent reference demo
 
@@ -219,6 +230,7 @@ Tsinghua-City/
 │   ├── mcp_server.py         # MCP world tools
 │   ├── reference_harness.py  # MCP harness client
 │   ├── harness_policy.py     # deterministic demo policy
+│   ├── static/canvas.html    # early Canvas
 │   ├── cli.py
 │   └── ...
 ├── tests/
@@ -240,7 +252,7 @@ Tsinghua-City/
 
 ~~~bash
 pytest -q
-# local checkpoint: 33 passed, 2 skipped
+# local checkpoint: 35 passed, 2 skipped
 ~~~
 
 The two skips are Postgres-only concurrency tests.
@@ -251,7 +263,7 @@ With a disposable Postgres:
 pip install -e '.[dev,postgres]'
 export CITY_TEST_DATABASE_URL=postgresql+psycopg://.../city_test
 pytest -q
-# expected at this checkpoint: 35 passed
+# expected at this checkpoint: 37 passed
 ~~~
 
 Windows testers with a system proxy should read [docs/TESTING.md](docs/TESTING.md). The loopback test client and MCP sidecar bypass WinINET proxies, but external harnesses may still need `NO_PROXY`.

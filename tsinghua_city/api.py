@@ -9,10 +9,11 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -50,6 +51,8 @@ from .schemas import (
     WorldCreate,
     WorldOut,
 )
+
+CANVAS_PATH = Path(__file__).with_name("static") / "canvas.html"
 
 
 @dataclass
@@ -147,6 +150,10 @@ def create_app(
             raise HTTPException(status_code=409, detail="agent is dead")
         return AgentAuth(session=session, agent=agent, world=world)
 
+    @app.get("/canvas", include_in_schema=False)
+    def canvas() -> FileResponse:
+        return FileResponse(CANVAS_PATH, media_type="text/html")
+
     @app.get("/health", response_model=HealthOut)
     def health() -> dict[str, Any]:
         return {"ok": True, "service": "tsinghua-city", "version": "0.1.0"}
@@ -236,6 +243,34 @@ def create_app(
         if world is None:
             raise HTTPException(status_code=404, detail="world not found")
         return [service.event_view(event) for event in service.events(session, world, limit=limit)]
+
+    @app.get("/v1/worlds/{world_id}/posts", response_model=list[PostOut])
+    def admin_list_posts(
+        world_id: str,
+        limit: int = Query(default=100, ge=1, le=200),
+        _admin: None = Depends(require_admin),
+        session: Session = Depends(get_db),
+    ) -> list[dict[str, Any]]:
+        world = session.get(World, world_id)
+        if world is None:
+            raise HTTPException(status_code=404, detail="world not found")
+        return [
+            service.post_view(session, post)
+            for post in service.list_posts(session, world, limit=limit)
+        ]
+
+    @app.get("/v1/worlds/{world_id}/posts/{post_id}", response_model=PostDetailOut)
+    def admin_get_post(
+        world_id: str,
+        post_id: str,
+        _admin: None = Depends(require_admin),
+        session: Session = Depends(get_db),
+    ) -> dict[str, Any]:
+        world = session.get(World, world_id)
+        if world is None:
+            raise HTTPException(status_code=404, detail="world not found")
+        post = service.get_post(session, world, post_id)
+        return service.post_view(session, post, include_replies=True)
 
     def runtime_subject(
         world_id: str,

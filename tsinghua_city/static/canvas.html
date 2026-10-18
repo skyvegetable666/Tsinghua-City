@@ -1,0 +1,278 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Tsinghua City Canvas</title>
+  <style>
+    :root { --bg:#0b1020; --panel:#121a2f; --line:#243155; --text:#e7ecff; --muted:#8ea0c7; --accent:#6ee7b7; --warn:#fbbf24; --bad:#fb7185; }
+    * { box-sizing:border-box; }
+    body { margin:0; background:radial-gradient(circle at top left,#172554 0,#0b1020 45%); color:var(--text); font:14px/1.5 ui-sans-serif,system-ui,-apple-system,Segoe UI,sans-serif; }
+    header { padding:22px 28px; border-bottom:1px solid var(--line); display:flex; gap:18px; align-items:center; flex-wrap:wrap; }
+    h1 { margin:0; font-size:20px; letter-spacing:.2px; }
+    .tag { color:var(--accent); border:1px solid #2e6b5a; background:#0d2b25; padding:2px 8px; border-radius:99px; font-size:11px; }
+    .muted { color:var(--muted); }
+    main { max-width:1400px; margin:0 auto; padding:22px 28px 60px; }
+    .bar { display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-bottom:18px; }
+    input, select, button { background:#0e1730; color:var(--text); border:1px solid var(--line); border-radius:8px; padding:9px 11px; font:inherit; }
+    button { cursor:pointer; background:#17335f; }
+    button:hover { border-color:#4f74b3; }
+    button.primary { background:#166534; border-color:#22c55e; }
+    button.danger { background:#4c0519; border-color:#fb7185; }
+    .panel { background:rgba(18,26,47,.86); border:1px solid var(--line); border-radius:14px; padding:16px; margin-bottom:16px; }
+    .grid { display:grid; grid-template-columns:repeat(12,1fr); gap:16px; }
+    .span-4 { grid-column:span 4; } .span-6 { grid-column:span 6; } .span-8 { grid-column:span 8; } .span-12 { grid-column:span 12; }
+    @media (max-width:980px) { .span-4,.span-6,.span-8 { grid-column:span 12; } }
+    h2 { margin:0 0 12px; font-size:15px; color:#cfe0ff; }
+    table { width:100%; border-collapse:collapse; }
+    th,td { text-align:left; padding:8px 6px; border-bottom:1px solid #1c2948; vertical-align:top; }
+    th { color:var(--muted); font-weight:500; font-size:12px; }
+    .pill { display:inline-block; padding:1px 8px; border-radius:99px; font-size:11px; border:1px solid var(--line); }
+    .RUNNING,.OPEN,.COMPLETED { color:var(--accent); border-color:#2e6b5a; background:#0d2b25; }
+    .SUSPENDED,.CLAIMED,.SUBMITTED { color:var(--warn); border-color:#7c5b17; background:#2a210c; }
+    .CRASHED,.FAILED,.CANCELLED,.STOPPED { color:var(--bad); border-color:#7f1d32; background:#2a0d18; }
+    .post { border-bottom:1px solid #1c2948; padding:10px 0; }
+    .post:last-child { border-bottom:0; }
+    .event { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:12px; color:#b9c8e8; padding:4px 0; }
+    .agent { border:1px solid #1c2948; border-radius:10px; padding:12px; }
+    .agent h3 { margin:0 0 6px; font-size:14px; }
+    .mono { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; }
+    .err { color:#fecdd3; background:#3f1220; border:1px solid #7f1d32; padding:10px 12px; border-radius:8px; margin-bottom:12px; white-space:pre-wrap; }
+    .token { background:#07101f; border:1px solid #2e6b5a; padding:10px; border-radius:8px; overflow:auto; }
+    .hidden { display:none !important; }
+    footer { color:#5d6d90; font-size:12px; margin-top:30px; }
+  </style>
+</head>
+<body>
+<header>
+  <h1>Tsinghua City Canvas</h1>
+  <span class="tag">alpha canvas</span>
+  <span class="muted">World state, agents, economy, tasks, board, runtimes</span>
+</header>
+<main>
+  <div id="error" class="err hidden"></div>
+  <div class="bar">
+    <input id="token" type="password" placeholder="Admin bearer token" size="32">
+    <button onclick="saveToken()">Use token</button>
+    <select id="worldSelect" onchange="selectWorld(this.value)"><option value="">Select world</option></select>
+    <button onclick="refreshAll()">Refresh</button>
+    <span id="status" class="muted"></span>
+  </div>
+
+  <section id="setup" class="panel">
+    <h2>Connect</h2>
+    <p class="muted">Enter the admin token from CITY_ADMIN_TOKEN. The token stays in this browser's localStorage and is sent only to this local API.</p>
+  </section>
+
+  <section id="worldPanel" class="panel hidden">
+    <div class="bar" style="justify-content:space-between">
+      <div>
+        <h2 id="worldName">—</h2>
+        <div id="worldMeta" class="muted mono"></div>
+      </div>
+      <div>
+        <input id="agentName" placeholder="new agent name">
+        <button onclick="createAgent()">Create agent</button>
+      </div>
+    </div>
+    <div id="createdToken" class="token hidden"></div>
+  </section>
+
+  <div id="worldGrid" class="grid hidden">
+    <section class="panel span-8">
+      <h2>Agents</h2>
+      <div id="agents" class="grid"></div>
+    </section>
+    <section class="panel span-4">
+      <h2>World controls</h2>
+      <p class="muted">Create a world or inspect public state. Task creation and runtime commands remain explicit API actions.</p>
+      <div class="bar"><input id="worldNameInput" placeholder="new world name"><button onclick="createWorld()">Create world</button></div>
+      <div id="runtimes"></div>
+    </section>
+
+    <section class="panel span-6">
+      <h2>Task board</h2>
+      <div id="tasks"></div>
+    </section>
+    <section class="panel span-6">
+      <h2>Public bulletin board</h2>
+      <div id="posts"></div>
+    </section>
+
+    <section class="panel span-12">
+      <h2>Recent events</h2>
+      <div id="events"></div>
+    </section>
+  </div>
+
+  <footer>Read-only Canvas · API: /docs · No agent token is displayed</footer>
+</main>
+<script>
+  var tokenKey = 'city_admin_token';
+  var selectedWorld = '';
+  var timer = null;
+
+  function esc(value) {
+    return String(value === undefined || value === null ? '' : value)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+  function fmt(value) {
+    if (!value) return '—';
+    var d = new Date(value);
+    return isNaN(d) ? String(value) : d.toLocaleString();
+  }
+  function showError(message) {
+    var el = document.getElementById('error');
+    if (!message) { el.classList.add('hidden'); el.textContent = ''; return; }
+    el.classList.remove('hidden'); el.textContent = message;
+  }
+  function authHeaders() {
+    return {'Authorization': 'Bearer ' + document.getElementById('token').value};
+  }
+  async function api(path, options) {
+    options = options || {};
+    options.headers = Object.assign({}, authHeaders(), options.headers || {});
+    var response = await fetch(path, options);
+    var text = await response.text();
+    var data = text ? JSON.parse(text) : null;
+    if (!response.ok) throw new Error(path + ' ' + response.status + ': ' + (data && data.detail ? data.detail : text));
+    return data;
+  }
+  function saveToken() {
+    var token = document.getElementById('token').value.trim();
+    localStorage.setItem(tokenKey, token);
+    refreshWorlds();
+  }
+  async function refreshAll() {
+    await refreshWorlds();
+    if (selectedWorld) await loadWorld();
+  }
+  async function refreshWorlds() {
+    try {
+      showError('');
+      var token = document.getElementById('token').value.trim();
+      if (!token) { document.getElementById('status').textContent = 'admin token required'; return; }
+      var worlds = await api('/v1/worlds');
+      var select = document.getElementById('worldSelect');
+      select.innerHTML = '<option value="">Select world</option>';
+      worlds.forEach(function(world) {
+        var option = document.createElement('option');
+        option.value = world.id; option.textContent = world.name + ' (' + world.id.slice(0, 8) + ')';
+        if (world.id === selectedWorld) option.selected = true;
+        select.appendChild(option);
+      });
+      document.getElementById('status').textContent = worlds.length + ' world(s)';
+      if (!selectedWorld && worlds.length) selectWorld(worlds[0].id);
+      if (!worlds.length) { document.getElementById('worldPanel').classList.add('hidden'); document.getElementById('worldGrid').classList.add('hidden'); }
+    } catch (err) { showError(err.message); }
+  }
+  function selectWorld(id) {
+    selectedWorld = id;
+    if (timer) clearInterval(timer);
+    if (!id) { document.getElementById('worldPanel').classList.add('hidden'); document.getElementById('worldGrid').classList.add('hidden'); return; }
+    loadWorld();
+    timer = setInterval(loadWorld, 3000);
+  }
+  async function loadWorld() {
+    if (!selectedWorld) return;
+    try {
+      showError('');
+      var results = await Promise.all([
+        api('/v1/worlds/' + selectedWorld),
+        api('/v1/worlds/' + selectedWorld + '/agents'),
+        api('/v1/worlds/' + selectedWorld + '/tasks?limit=100'),
+        api('/v1/worlds/' + selectedWorld + '/posts?limit=30'),
+        api('/v1/worlds/' + selectedWorld + '/events?limit=40'),
+        api('/v1/worlds/' + selectedWorld + '/runtimes')
+      ]);
+      renderWorld(results[0]); renderAgents(results[1], results[5]);
+      renderTasks(results[2]); renderPosts(results[3]); renderEvents(results[4]); renderRuntimes(results[5]);
+      document.getElementById('worldPanel').classList.remove('hidden');
+      document.getElementById('worldGrid').classList.remove('hidden');
+      document.getElementById('status').textContent = 'updated ' + new Date().toLocaleTimeString();
+    } catch (err) { showError(err.message); }
+  }
+  function renderWorld(world) {
+    document.getElementById('worldName').textContent = world.name;
+    document.getElementById('worldMeta').textContent = world.id + ' · ' + world.status + ' · ' + JSON.stringify(world.config);
+  }
+  function renderAgents(agents, runtimes) {
+    var byAgent = {}; runtimes.forEach(function(r) { byAgent[r.agent_id] = r; });
+    var html = '';
+    agents.forEach(function(a) {
+      var r = byAgent[a.id];
+      html += '<div class="agent span-4">' +
+        '<h3>' + esc(a.name) + ' <span class="pill ' + (a.alive ? 'RUNNING' : 'CRASHED') + '">' + (a.alive ? 'alive' : 'dead') + '</span></h3>' +
+        '<div class="mono muted">' + esc(a.id) + '</div>' +
+        '<div>balance <b>' + esc(a.balance) + '</b> · death ' + esc(fmt(a.death_at)) + '</div>' +
+        '<div class="muted">runtime: ' + (r ? '<span class="pill ' + esc(r.status) + '">' + esc(r.status) + '</span> pid ' + esc(r.pid || '—') + ' restarts ' + esc(r.restart_count) : 'none') + '</div>' +
+        '</div>';
+    });
+    document.getElementById('agents').innerHTML = html || '<div class="muted">No agents</div>';
+  }
+  function renderTasks(tasks) {
+    if (!tasks.length) { document.getElementById('tasks').innerHTML = '<div class="muted">No tasks yet</div>'; return; }
+    var html = '<table><thead><tr><th>Task</th><th>Status</th><th>Publisher / assignee</th><th>Reward</th></tr></thead><tbody>';
+    tasks.forEach(function(t) {
+      html += '<tr><td><b>' + esc(t.title) + '</b><div class="muted">' + esc(t.id) + '</div></td>' +
+        '<td><span class="pill ' + esc(t.status) + '">' + esc(t.status) + '</span></td>' +
+        '<td>' + esc(t.publisher) + (t.assignee ? ' / ' + esc(t.assignee) : '') + '</td>' +
+        '<td>' + esc(t.reward) + '</td></tr>';
+    });
+    document.getElementById('tasks').innerHTML = html + '</tbody></table>';
+  }
+  function renderPosts(posts) {
+    if (!posts.length) { document.getElementById('posts').innerHTML = '<div class="muted">No posts yet</div>'; return; }
+    var html = '';
+    posts.forEach(function(p) {
+      html += '<div class="post"><b>' + esc(p.title) + '</b> <span class="muted">by ' + esc(p.author) + ' · ' + esc(fmt(p.created_at)) + '</span>' +
+        '<div>' + esc(p.body) + '</div></div>';
+    });
+    document.getElementById('posts').innerHTML = html;
+  }
+  function renderEvents(events) {
+    var html = '';
+    events.forEach(function(e) {
+      html += '<div class="event">' + esc(fmt(e.created_at)) + ' · ' + esc(e.event_type) + ' · ' + esc(e.actor || 'system') + ' · ' + esc(JSON.stringify(e.data)) + '</div>';
+    });
+    document.getElementById('events').innerHTML = html || '<div class="muted">No events</div>';
+  }
+  function renderRuntimes(runtimes) {
+    if (!runtimes.length) { document.getElementById('runtimes').innerHTML = '<div class="muted">No runtimes</div>'; return; }
+    var html = '';
+    runtimes.forEach(function(r) {
+      html += '<div class="event">' + esc(r.agent_id.slice(0, 12)) + ' · <span class="pill ' + esc(r.status) + '">' + esc(r.status) + '</span> · pid ' + esc(r.pid || '—') + ' · restart ' + esc(r.restart_count) + '</div>';
+    });
+    document.getElementById('runtimes').innerHTML = html;
+  }
+  async function createWorld() {
+    var name = document.getElementById('worldNameInput').value.trim();
+    if (!name) return;
+    try {
+      var world = await api('/v1/worlds', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({name: name})});
+      selectedWorld = world.id;
+      document.getElementById('worldNameInput').value = '';
+      await refreshWorlds();
+    } catch (err) { showError(err.message); }
+  }
+  async function createAgent() {
+    var name = document.getElementById('agentName').value.trim();
+    if (!selectedWorld || !name) return;
+    try {
+      var agent = await api('/v1/worlds/' + selectedWorld + '/agents', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({name: name})});
+      document.getElementById('agentName').value = '';
+      var token = document.getElementById('createdToken');
+      token.classList.remove('hidden');
+      token.textContent = 'agent ' + agent.name + ' created. token (shown once): ' + agent.token;
+      await loadWorld();
+    } catch (err) { showError(err.message); }
+  }
+  (function init() {
+    var saved = localStorage.getItem(tokenKey) || '';
+    document.getElementById('token').value = saved;
+    if (saved) refreshWorlds();
+  })();
+</script>
+</body>
+</html>

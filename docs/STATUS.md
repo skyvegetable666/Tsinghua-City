@@ -27,6 +27,7 @@ Tsinghua City now has an authoritative world-state service, MCP capabilities, a 
 | Local runtime manager | start/stop/suspend/resume/terminate/reconcile |
 | Runtime recovery | process-loss mark, on-failure restart, terminate crashed |
 | Reference harness | deterministic MCP policy + two-agent demo + JSONL journals |
+| Canvas | early admin monitor at /canvas: worlds/agents/runtimes/tasks/posts/events |
 | Token rotation | runtime start/resume/auto-restart; old tokens invalidated |
 | Runtime MCP config | generated per process; removed on stop |
 | Windows proxy handling | loopback clients bypass WinINET |
@@ -37,7 +38,7 @@ Tsinghua City now has an authoritative world-state service, MCP capabilities, a 
 Local checkpoint:
 
 ~~~text
-33 passed, 2 skipped
+35 passed, 2 skipped
 ~~~
 
 The skipped tests are Postgres-only concurrency checks. The two-agent reference
@@ -57,8 +58,8 @@ writes a new MCP config token and invalidates the previous one. It passes
 locally.
 
 **Post-9e4c066 additions:** deterministic reference MCP harness, two-agent demo,
-and MCP list-content decoding tests. These are local-verified but not yet
-tester-verified. Current Postgres expectation is `35 passed`.
+MCP list-content decoding tests, and an early Canvas. These are local-verified
+but not yet tester-verified. Current Postgres expectation is `37 passed`.
 
 ## Known gaps
 
@@ -66,7 +67,7 @@ tester-verified. Current Postgres expectation is `35 passed`.
 - No safe-point injection into an active model call.
 - No durable multi-worker runtime leases or ownership.
 - The bundled harness is a deterministic reference policy, not a model-driven agent.
-- No Canvas/UI or experiment manifest/run comparison.
+- Canvas is an early admin monitor, not the final experiment UI/run comparison.
 - Named external-employer accounts/budgets are not implemented.
 - In-process scheduler is single-worker and not durable.
 - No production auth, TLS, rate limiting, backup, or deployment hardening.

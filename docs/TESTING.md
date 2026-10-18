@@ -1,8 +1,8 @@
 # Testing guide
 
 - **Code checkpoint:** `9e4c066`
-- **Default expectation:** `33 passed, 2 skipped`
-- **Postgres expectation:** `35 passed`
+- **Default expectation:** `35 passed, 2 skipped`
+- **Postgres expectation:** `37 passed`
 
 ## 1. Local setup
 
@@ -47,7 +47,7 @@ Use a **disposable** database. The fixture drops and recreates tables.
 pip install -e '.[dev,postgres]'
 export CITY_TEST_DATABASE_URL=postgresql+psycopg://postgres:city@127.0.0.1:5432/city_test
 pytest -q
-# expected: 35 passed
+# expected: 37 passed
 
 pytest -q tests/test_postgres_concurrency.py -vv
 # both tests must pass; one transfer is 409, the other ok
@@ -79,7 +79,19 @@ Expected: alice/bob publish and complete tasks; JSONL journals appear under
 `runs/demo-journals/<world>/`. The harness exits after its ticks, so a later
 GET may report the runtime as CRASHED; that is expected for a finite demo run.
 
-## 5. MCP protocol
+## 5. Canvas smoke
+
+Open `http://127.0.0.1:8000/canvas` or:
+
+~~~bash
+pytest -q tests/test_canvas.py
+# 2 passed
+~~~
+
+Enter the admin token, select a world, and verify agents/tasks/posts/events/runtime
+statuses render. The Canvas is an admin monitor; it does not expose agent tokens.
+
+## 6. MCP protocol
 
 ~~~powershell
 pytest -q tests/test_mcp_protocol.py -s
@@ -87,7 +99,7 @@ pytest -q tests/test_mcp_protocol.py -s
 
 This starts a live World API and a real `python -m tsinghua_city mcp` stdio process, then checks `tools/list` and `tools/call`.
 
-## 6. Runtime manual acceptance
+## 7. Runtime manual acceptance
 
 Create a world and at least two agents.
 
@@ -118,7 +130,7 @@ Check:
 
 If `serve` is running, its scheduler may wake/restart before manual `tick`. For deterministic manual tests, stop the server or set `CITY_SCHEDULER_ENABLED=0`.
 
-## 7. Migration checks
+## 8. Migration checks
 
 Fresh database:
 
@@ -137,7 +149,7 @@ tsinghua-city upgrade
 
 Current tables include: worlds, agents, accounts, ledger transactions/entries, messages, tasks, posts, post_replies, agent_runtimes, events.
 
-## 8. API smoke
+## 9. API smoke
 
 Start:
 
@@ -154,7 +166,7 @@ Useful manual flows:
 - start/suspend/resume/stop a runtime
 - inspect events with admin token
 
-## 9. Reporting
+## 10. Reporting
 
 Include:
 
