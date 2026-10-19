@@ -241,52 +241,6 @@ class AgentRuntime(Base):
     stopped_at: Mapped[float | None] = mapped_column(Float, nullable=True)
 
 
-class AgentLife(Base):
-    __tablename__ = "agent_lives"
-    __table_args__ = (
-        Index("ix_agent_lives_world_agent_started", "world_id", "agent_id", "started_at"),
-        Index("ix_agent_lives_agent_status", "agent_id", "status"),
-    )
-
-    id: Mapped[str] = mapped_column(String(32), primary_key=True)
-    world_id: Mapped[str] = mapped_column(
-        ForeignKey("worlds.id", ondelete="CASCADE"), nullable=False
-    )
-    agent_id: Mapped[str] = mapped_column(
-        ForeignKey("agents.id", ondelete="CASCADE"), nullable=False
-    )
-    session_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
-    status: Mapped[str] = mapped_column(String(16), nullable=False)  # ACTIVE | ENDED
-    started_at: Mapped[float] = mapped_column(Float, nullable=False)
-    ended_at: Mapped[float | None] = mapped_column(Float, nullable=True)
-    end_reason: Mapped[str | None] = mapped_column(String(128), nullable=True)
-    wake: Mapped[str | None] = mapped_column(Text, nullable=True)
-    diary: Mapped[str | None] = mapped_column(Text, nullable=True)
-
-
-class TranscriptEvent(Base):
-    __tablename__ = "agent_transcript_events"
-    __table_args__ = (
-        Index("ix_transcript_life_created", "life_id", "created_at"),
-        Index("ix_transcript_agent_created", "agent_id", "created_at"),
-    )
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    world_id: Mapped[str] = mapped_column(
-        ForeignKey("worlds.id", ondelete="CASCADE"), nullable=False
-    )
-    agent_id: Mapped[str] = mapped_column(
-        ForeignKey("agents.id", ondelete="CASCADE"), nullable=False
-    )
-    life_id: Mapped[str] = mapped_column(
-        ForeignKey("agent_lives.id", ondelete="CASCADE"), nullable=False
-    )
-    kind: Mapped[str] = mapped_column(String(64), nullable=False)
-    body: Mapped[str | None] = mapped_column(Text, nullable=True)
-    data: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
-    created_at: Mapped[float] = mapped_column(Float, nullable=False)
-
-
 class Event(Base):
     __tablename__ = "events"
     __table_args__ = (

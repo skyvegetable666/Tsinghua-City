@@ -188,47 +188,6 @@ class RuntimeOut(BaseModel):
     stopped_at: str | None
 
 
-class LifeStart(BaseModel):
-    session_id: str | None = Field(default=None, max_length=128)
-    wake: str | None = Field(default=None, max_length=50_000)
-
-
-class LifeEnd(BaseModel):
-    reason: str | None = Field(default=None, max_length=128)
-    diary: str | None = Field(default=None, max_length=50_000)
-
-
-class TranscriptEventCreate(BaseModel):
-    kind: str = Field(min_length=1, max_length=64)
-    body: str | None = Field(default=None, max_length=20_000)
-    data: dict[str, Any] = Field(default_factory=dict)
-
-
-class TranscriptEventOut(BaseModel):
-    id: int
-    kind: str
-    body: str | None
-    data: dict[str, Any]
-    created_at: str
-
-
-class LifeOut(BaseModel):
-    id: str
-    world_id: str
-    agent_id: str
-    session_id: str | None
-    status: str
-    started_at: str
-    ended_at: str | None
-    end_reason: str | None
-
-
-class LifeDetailOut(LifeOut):
-    wake: str | None
-    diary: str | None
-    events: list[TranscriptEventOut]
-
-
 class EventOut(BaseModel):
     id: str
     event_type: str

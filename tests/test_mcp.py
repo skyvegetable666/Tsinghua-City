@@ -18,10 +18,6 @@ def test_tools_delegate_to_world_api(monkeypatch):
 
     assert mcp_server.check_state() == {"ok": True}
     assert mcp_server.check_balance() == {"ok": True}
-    assert mcp_server.start_life("session-1") == {"ok": True}
-    assert mcp_server.log_life_event("life_1", "tick", "body", {"n": 1}) == {"ok": True}
-    assert mcp_server.end_life("life_1", "done") == {"ok": True}
-    assert mcp_server.list_lives(5) == {"ok": True}
     assert mcp_server.extend_life(3) == {"ok": True}
     assert mcp_server.transfer_credits("bob", 2) == {"ok": True}
     assert mcp_server.send_message("bob", "hi") == {"ok": True}
@@ -45,14 +41,6 @@ def test_tools_delegate_to_world_api(monkeypatch):
     assert calls == [
         ("GET", "/v1/me", None),
         ("GET", "/v1/me/balance", None),
-        ("POST", "/v1/me/lives", {"session_id": "session-1"}),
-        (
-            "POST",
-            "/v1/me/lives/life_1/events",
-            {"kind": "tick", "body": "body", "data": {"n": 1}},
-        ),
-        ("POST", "/v1/me/lives/life_1/end", {"reason": "done"}),
-        ("GET", "/v1/me/lives?limit=5", None),
         ("POST", "/v1/me/extend-life", {"credits": 3}),
         ("POST", "/v1/me/transfer", {"to": "bob", "amount": 2}),
         ("POST", "/v1/me/messages", {"to": "bob", "body": "hi"}),

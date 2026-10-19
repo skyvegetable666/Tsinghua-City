@@ -22,12 +22,11 @@ This is a compact milestone log; Git history remains authoritative.
 - two-agent demo (`scripts/two_agent_demo.py`)
 - MCP list-content decoding regression test
 - early Canvas at `/canvas` with admin board-read API
-- agent lives and per-life transcript events; reference harness records birth/tick/life-end
-- local count: 37 passed / 2 skipped; Postgres expected 39 passed
+- local count: 35 passed / 2 skipped; Postgres expected 37 passed
 
 ## Verification snapshots
 
 - At `17af044`: Windows 26 passed / 2 skipped; Postgres 28 passed; double-spend 5/5.
 - At `9e4c066`: Windows 29 passed / 2 skipped; Postgres 31 passed.
-- Reference harness + Canvas + lives at current HEAD: local 37 passed / 2 skipped; manual demo completed four tasks and persisted birth/tick/life-end transcripts; Windows/Postgres not yet rerun.
+- Reference harness + Canvas at current HEAD: local 35 passed / 2 skipped; manual two-agent demo completed four tasks; Windows/Postgres not yet rerun.
 - The old `genesis-lab` prototype was archived after Phase 3 local runtime; it has no runtime imports.
