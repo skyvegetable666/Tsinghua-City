@@ -6,6 +6,7 @@ import json
 import sys
 import time
 from pathlib import Path
+from unittest.mock import Mock
 
 import psutil
 from conftest import agent_headers, create_agent, create_world
@@ -13,6 +14,65 @@ from conftest import agent_headers, create_agent, create_world
 
 def _sleep_command() -> list[str]:
     return [sys.executable, "-c", "import time; time.sleep(30)"]
+
+
+def test_completed_local_child_does_not_touch_a_reused_pid(tmp_path, monkeypatch):
+    from tsinghua_city.models import AgentRuntime
+    from tsinghua_city.runtime import LocalRuntimeAdapter
+
+    adapter = LocalRuntimeAdapter(api_url="http://localhost", log_dir=str(tmp_path))
+    runtime = AgentRuntime(pid=123, pid_create_time=1)
+    adapter._processes[123] = Mock(poll=Mock(return_value=0))
+
+    def replacement(pid):
+        raise AssertionError("a completed child must not inspect or signal a replacement process")
+
+    monkeypatch.setattr(psutil, "Process", replacement)
+    assert adapter.stop(runtime) == 0
+
+
+def test_successful_local_exit_is_not_restarted(client, admin_headers, session_factory, tmp_path):
+    from tsinghua_city.scheduler import tick_once
+
+    world = create_world(client, admin_headers)
+    alice = create_agent(client, admin_headers, world["id"], "alice")
+    marker = tmp_path / "finished"
+    base = f"/v1/worlds/{world['id']}/agents/{alice['id']}/runtime"
+    response = client.post(base + "/start", headers=admin_headers, json={
+        "command": [sys.executable, "-c", f"open({str(marker)!r}, 'w').write('done')"],
+        "restart_policy": "on_failure",
+    })
+    assert response.status_code == 200
+    for _ in range(100):
+        runtime = client.get(base, headers=admin_headers).json()
+        if runtime["status"] != "RUNNING":
+            break
+        time.sleep(0.02)
+    assert runtime["status"] == "STOPPED"
+    assert runtime["exit_code"] == 0
+    assert runtime["next_restart_at"] is None
+    assert marker.read_text() == "done"
+    assert tick_once(session_factory, client.app.state.runtime_manager)["restarted_runtimes"] == 0
+
+
+def test_death_stops_running_local_process(client, admin_headers, session_factory):
+    from tsinghua_city.models import Agent
+    from tsinghua_city.scheduler import tick_once
+
+    world = create_world(client, admin_headers)
+    alice = create_agent(client, admin_headers, world["id"], "alice")
+    base = f"/v1/worlds/{world['id']}/agents/{alice['id']}/runtime"
+    response = client.post(base + "/start", headers=admin_headers, json={
+        "command": _sleep_command(), "restart_policy": "on_failure",
+    }).json()
+    with session_factory() as session:
+        session.get(Agent, alice["id"]).death_at = 0
+        session.commit()
+    result = tick_once(session_factory, client.app.state.runtime_manager)
+    assert result["stopped_dead_runtimes"] == 1
+    assert not psutil.pid_exists(response["pid"])
+    assert client.get(base, headers=admin_headers).json()["status"] == "STOPPED"
+    assert client.post(base + "/resume", headers=admin_headers).status_code == 409
 
 
 def test_runtime_lifecycle_and_token_rotation(client, admin_headers, session_factory):

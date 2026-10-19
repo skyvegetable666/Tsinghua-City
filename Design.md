@@ -193,7 +193,7 @@ Initial capabilities:
 - Basic group conversations.
 - Access control based on identity and membership.
 
-Message delivery and runtime activation are separate events. A message may be stored while the recipient is idle. The scheduler determines when the recipient's process resumes.
+Message delivery and runtime activation are separate events. A message may be stored while the recipient is idle. Only an explicit operator request resumes a suspended process; messages never start or resume it.
 
 Messages already accepted by the communication service remain part of the historical record even if the sender subsequently dies.
 
@@ -204,7 +204,7 @@ Messages already accepted by the communication service remain part of the histor
 - Message edit and deletion rules.
 - Whether read receipts and online status exist.
 - Message attachment support.
-- Whether notifications cause immediate process resume, scheduled resume, or configurable behavior.
+- How an already running harness receives queued notifications between turns.
 
 ## 8. Public Bulletin Board
 

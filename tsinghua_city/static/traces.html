@@ -43,6 +43,15 @@
   .ev.user .kind { color:var(--user); }
   .ev pre { white-space:pre-wrap; overflow-wrap:anywhere; color:var(--dim); }
   .empty { color:var(--faint); padding:30px; }
+  #head button { background:var(--panel2); color:var(--text); border:1px solid var(--border);
+                 border-radius:5px; padding:4px 8px; cursor:pointer; }
+  @media (max-width:600px) {
+    body { flex-direction:column; }
+    #rail { width:100%; min-width:0; max-height:35vh; border-right:0; }
+    #main { min-height:0; }
+    #head { flex-wrap:wrap; overflow-wrap:anywhere; }
+    #stream { padding:10px; }
+  }
 </style>
 </head>
 <body>
@@ -57,11 +66,20 @@
 </nav>
 <main id="main">
   <div id="head"><span id="title">select a trace</span><span class="spacer"></span>
+    <button onclick="selectFile(selected)" type="button">Refresh</button>
+    <button id="more" onclick="selectFile(selected, true)" type="button" hidden>Load more</button>
     <a href="/canvas">canvas</a><span id="count"></span></div>
   <div id="stream"><div class="empty">No trace selected.</div></div>
 </main>
 <script>
   var selected = '';
+  var nextOffset = null;
+  var loadedEvents = [];
+  var requested = new URLSearchParams(location.search);
+  var filters = new URLSearchParams();
+  ['world_id', 'agent_id', 'run_id', 'experiment_id'].forEach(function (key) {
+    if (requested.has(key)) filters.set(key, requested.get(key));
+  });
   function $(id) { return document.getElementById(id); }
   function esc(value) {
     return String(value === undefined || value === null ? '' : value)
@@ -77,32 +95,42 @@
     return response.json();
   }
   async function loadFiles() {
+    var box = $('files');
     try {
       localStorage.setItem('city_admin_token', $('token').value.trim());
-      var files = await api('/v1/traces');
-      var box = $('files');
+      var files = await api('/v1/traces?' + filters.toString());
       box.innerHTML = '';
       if (!files.length) { box.innerHTML = '<div class="empty">No trace files in runs/transcripts.</div>'; return; }
       files.forEach(function (file) {
         var el = document.createElement('div');
         el.className = 'file' + (file.name === selected ? ' active' : '');
+        el.dataset.name = file.name;
         el.innerHTML = '<div>' + esc(file.name) + '</div><div class="meta">' +
-          esc(Math.round(file.size / 1024)) + ' KiB</div>';
+          esc(file.agent_id || '') + ' ' + esc(Math.round(file.size / 1024)) + ' KiB</div>';
         el.onclick = function () { selectFile(file.name); };
         box.appendChild(el);
       });
       if (!selected && files.length) selectFile(files[0].name);
     } catch (err) { box.innerHTML = '<div class="empty">' + esc(err.message) + '</div>'; }
   }
-  async function selectFile(name) {
+  async function selectFile(name, append) {
+    if (!name) return;
+    if (!append || name !== selected) { loadedEvents = []; nextOffset = 0; }
+    if (append && nextOffset === null) return;
     selected = name;
     $('title').textContent = name;
     $('stream').innerHTML = '<div class="empty">Loading…</div>';
     try {
-      var data = await api('/v1/traces/' + encodeURIComponent(name));
-      $('count').textContent = data.events.length + ' events';
-      render(data.events);
-      loadFiles();
+      var data = await api('/v1/traces/' + encodeURIComponent(name) + '?offset=' + nextOffset);
+      if (selected !== name) return;
+      loadedEvents = loadedEvents.concat(data.events);
+      nextOffset = data.next_offset;
+      $('more').hidden = nextOffset === null;
+      $('count').textContent = loadedEvents.length + ' events';
+      render(loadedEvents);
+      document.querySelectorAll('.file').forEach(function (el) {
+        el.classList.toggle('active', el.dataset.name === selected);
+      });
     } catch (err) { $('stream').innerHTML = '<div class="empty">' + esc(err.message) + '</div>'; }
   }
   function eventClass(event) {

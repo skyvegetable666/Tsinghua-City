@@ -13,8 +13,8 @@ ENV DEBIAN_FRONTEND=noninteractive PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 
     DISABLE_TELEMETRY=1 DISABLE_ERROR_REPORTING=1 \
     CITY_AGENT_WORKDIR=/work CITY_TRACE_DIR=/work/transcripts CITY_TRACE_STDOUT=1
 
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends \
+RUN apt-get -o Acquire::Retries=3 update \
+    && apt-get -o Acquire::Retries=3 install -y --no-install-recommends \
         ca-certificates \
         curl \
         git \

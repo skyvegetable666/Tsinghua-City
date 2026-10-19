@@ -52,6 +52,7 @@ class LocalRuntimeAdapter:
     def __init__(self, *, api_url: str, log_dir: str) -> None:
         self.api_url = api_url.rstrip("/")
         self.log_dir = Path(log_dir).expanduser().resolve()
+        self._processes: dict[int, subprocess.Popen] = {}
 
     def _write_mcp_config(self, runtime_id: str, token: str, agent_id: str, world_id: str) -> Path:
         self.log_dir.mkdir(parents=True, exist_ok=True)
@@ -141,6 +142,7 @@ class LocalRuntimeAdapter:
             process.terminate()
             mcp_path.unlink(missing_ok=True)
             raise
+        self._processes[process.pid] = process
         return StartResult(
             pid=process.pid,
             pid_create_time=create_time,
@@ -151,6 +153,9 @@ class LocalRuntimeAdapter:
     def is_running(self, runtime: AgentRuntime) -> bool:
         if runtime.pid is None:
             return False
+        child = self._processes.get(runtime.pid)
+        if child is not None:
+            return child.poll() is None
         try:
             process = psutil.Process(runtime.pid)
             if (
@@ -164,7 +169,10 @@ class LocalRuntimeAdapter:
 
     def stop(self, runtime: AgentRuntime) -> int | None:
         exit_code: int | None = None
-        if runtime.pid is not None:
+        child = self._processes.pop(runtime.pid, None)
+        if child is not None:
+            exit_code = child.poll()
+        if runtime.pid is not None and exit_code is None:
             try:
                 process = psutil.Process(runtime.pid)
                 if (
@@ -173,14 +181,28 @@ class LocalRuntimeAdapter:
                 ):
                     raise RuntimeError("refusing to stop a reused pid")
                 if process.is_running():
+                    descendants = process.children(recursive=True)
+                    for descendant in reversed(descendants):
+                        try:
+                            descendant.terminate()
+                        except psutil.NoSuchProcess:
+                            pass
                     process.terminate()
                     try:
                         exit_code = process.wait(timeout=5)
                     except psutil.TimeoutExpired:
                         process.kill()
                         exit_code = process.wait(timeout=5)
+                    _, alive = psutil.wait_procs(descendants, timeout=1)
+                    for descendant in alive:
+                        try:
+                            descendant.kill()
+                        except psutil.NoSuchProcess:
+                            pass
             except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
                 pass
+        if child is not None and exit_code is None:
+            exit_code = child.wait(timeout=5)
         if runtime.mcp_config_path:
             Path(runtime.mcp_config_path).unlink(missing_ok=True)
         return exit_code
@@ -432,10 +454,8 @@ class RuntimeManager:
             runtime=runtime,
         )
 
-    def _mark_crashed(self, session: Session, runtime: AgentRuntime, reason: str) -> None:
-        # Remove stopped containers/networks and export logs before rotating credentials.
-        if runtime.adapter == "docker":
-            runtime.exit_code = self._adapter(runtime.adapter).stop(runtime)
+    def _mark_exited(self, session: Session, runtime: AgentRuntime, reason: str) -> None:
+        runtime.exit_code = self._adapter(runtime.adapter).stop(runtime)
         if runtime.mcp_config_path:
             Path(runtime.mcp_config_path).unlink(missing_ok=True)
             runtime.mcp_config_path = None
@@ -444,27 +464,56 @@ class RuntimeManager:
             # The process may have held a valid token; invalidate it.
             service.rotate_agent_token(session, agent)
         now = utcnow()
-        runtime.status = CRASHED
+        succeeded = runtime.exit_code == 0
+        runtime.status = STOPPED if succeeded else CRASHED
         runtime.pid = None
         runtime.pid_create_time = None
-        runtime.last_error = reason
+        runtime.last_error = None if succeeded else reason
+        runtime.stopped_at = now
         runtime.updated_at = now
         if (
-            runtime.restart_policy == RESTART_ON_FAILURE
+            not succeeded
+            and runtime.restart_policy == RESTART_ON_FAILURE
             and runtime.restart_count < runtime.max_restarts
         ):
             delay = min(60, 2 ** min(runtime.restart_count, 6))
             runtime.next_restart_at = now + delay
         else:
             runtime.next_restart_at = None
-        self._event(session, runtime, "runtime.crashed", data={"reason": reason})
+        self._event(
+            session, runtime, "runtime.completed" if succeeded else "runtime.crashed",
+            data={"reason": reason, "exit_code": runtime.exit_code},
+        )
+
+    def stop_dead(self, session: Session, world: World) -> int:
+        agents = session.scalars(
+            select(Agent).join(AgentRuntime, AgentRuntime.agent_id == Agent.id).where(
+                Agent.world_id == world.id,
+                (Agent.alive.is_(False)) | (Agent.death_at <= utcnow()),
+                AgentRuntime.status.in_([RUNNING, SUSPENDED, CRASHED, LOST]),
+            )
+        ).all()
+        stopped = 0
+        for agent in agents:
+            service.refresh_alive(session, agent, world)
+            try:
+                self._stop(session, world, agent, status=STOPPED, event_type="runtime.agent_died")
+                stopped += 1
+            except service.DomainError as exc:
+                session.rollback()
+                logger.warning("cannot stop dead agent %s: %s", agent.id, exc.message)
+        return stopped
 
     def status(self, session: Session, world: World, agent: Agent) -> AgentRuntime:
         runtime = self.get_runtime(session, world, agent)
         if runtime is None:
             raise service.DomainError("runtime not found", 404)
+        if not service.refresh_alive(session, agent, world) and runtime.status != STOPPED:
+            return self._stop(
+                session, world, agent, status=STOPPED, event_type="runtime.agent_died"
+            )
         if runtime.status == RUNNING and not self._adapter(runtime.adapter).is_running(runtime):
-            self._mark_crashed(session, runtime, "process is not running")
+            self._mark_exited(session, runtime, "process is not running")
             session.commit()
             session.refresh(runtime)
         return runtime
@@ -489,10 +538,9 @@ class RuntimeManager:
                 )
                 continue
             if not running:
-                self._mark_crashed(session, runtime, "process is not running")
-                changed += 1
-        if changed:
-            session.commit()
+                self._mark_exited(session, runtime, "process is not running")
+                changed += runtime.status == CRASHED
+                session.commit()
         return changed
 
     def restart_due(self, session: Session, world: World) -> int:
@@ -536,6 +584,8 @@ class RuntimeManager:
     def reconcile(self) -> int:
         changed = 0
         with self._session_factory() as session:
+            for world in session.scalars(select(World)).all():
+                changed += self.stop_dead(session, world)
             runtimes = session.scalars(
                 select(AgentRuntime).where(AgentRuntime.status == RUNNING)
             ).all()
@@ -551,7 +601,7 @@ class RuntimeManager:
                     )
                     continue
                 if not running:
-                    self._mark_crashed(session, runtime, "lost on manager restart")
+                    self._mark_exited(session, runtime, "lost on manager restart")
                     changed += 1
             if changed:
                 session.commit()

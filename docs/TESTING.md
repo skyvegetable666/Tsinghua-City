@@ -1,8 +1,8 @@
 # Testing guide
 
 - **Code checkpoint:** `9e4c066`
-- **Default expectation:** `45 passed, 6 skipped` (four Docker + two Postgres checks)
-- **With Docker:** `49 passed, 2 skipped`
+- **Default expectation:** `66 passed, 9 skipped` (seven Docker + two Postgres checks)
+- **With Docker:** `73 passed, 2 skipped`
 
 ## 1. Local setup
 
@@ -57,7 +57,7 @@ Use a **disposable** database. The fixture drops and recreates tables.
 pip install -e '.[dev,postgres]'
 export CITY_TEST_DATABASE_URL=postgresql+psycopg://postgres:city@127.0.0.1:5432/city_test
 pytest -q
-# expected without Docker: 47 passed, 4 skipped
+# expected without Docker: 68 passed, 7 skipped
 
 pytest -q tests/test_postgres_concurrency.py -vv
 # both tests must pass; one transfer is 409, the other ok
@@ -87,19 +87,24 @@ python scripts/two_agent_demo.py --ticks 6 --interval 1
 
 Expected: alice/bob publish and complete tasks; JSONL journals appear under
 `runs/demo-journals/<world>/`. The harness exits after its ticks, so a later
-GET may report the runtime as CRASHED; that is expected for a finite demo run.
+GET reports a successful runtime as STOPPED with exit_code 0; it must not restart.
 
 ### Claude harness (fake CLI)
 
 ~~~bash
 pytest -q tests/test_claude_harness.py tests/test_claude_agent.py
-# 4 passed
+# 10 passed
 ~~~
 
 The tests start a fake Claude CLI using the stream-json protocol. They verify
 that the harness sends the first user turn, captures init/assistant/result
 events, constructs an MCP config command, and writes the agent entrypoint's
 JSONL trace. They do not require a model, credentials, or Docker.
+
+They also check bounded continuation, message acknowledgement after successful
+replies, failed-reply retention, CLI budget arguments, native limit results, and
+wall-time exhaustion. `tests/test_experiments.py` checks manifest validation,
+batch start/stop, private condition archives, and partial-launch cleanup.
 
 ## 5. Trace viewer
 

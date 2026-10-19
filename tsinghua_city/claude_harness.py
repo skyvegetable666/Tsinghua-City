@@ -48,6 +48,7 @@ class ClaudeHarness:
         claude_bin: str = "claude",
         max_turns: int = 30,
         resume_session: str | None = None,
+        max_budget_usd: float | None = None,
     ) -> None:
         self.run_id = run_id
         self.agent_id = agent_id
@@ -62,6 +63,7 @@ class ClaudeHarness:
         self.claude_bin = claude_bin
         self.max_turns = max_turns
         self.resume_session = resume_session
+        self.max_budget_usd = max_budget_usd
         self.last_result: dict | None = None
 
         self.process: asyncio.subprocess.Process | None = None
@@ -111,6 +113,8 @@ class ClaudeHarness:
             command.extend(["--session-id", _session_uuid(self.run_id, self.agent_id)])
         if self.model:
             command.extend(["--model", self.model])
+        if self.max_budget_usd is not None:
+            command.extend(["--max-budget-usd", str(self.max_budget_usd)])
         if self.world_prompt.strip():
             command.extend(["--append-system-prompt", self.world_prompt])
         return command
@@ -272,6 +276,8 @@ class ClaudeHarness:
                     process.kill()
                 except ProcessLookupError:
                     pass
+                await process.wait()
+        self.exit_code = process.returncode
         if self._reader_task:
             self._reader_task.cancel()
         if self._stderr_task:
@@ -396,6 +402,7 @@ class ClaudeHarness:
             self.working = False
             result = {
                 "type": "turn_result",
+                "subtype": event.get("subtype"),
                 "turn": self.current_turn,
                 "stop_reason": event.get("stop_reason"),
                 "is_error": bool(event.get("is_error")),

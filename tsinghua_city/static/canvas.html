@@ -493,6 +493,8 @@
       'runtime.suspended': 'Runtime · Suspended',
       'runtime.resumed': 'Runtime · Resumed',
       'runtime.crashed': 'Runtime · Crashed',
+      'runtime.completed': 'Runtime · Completed',
+      'runtime.agent_died': 'Runtime · Stopped after death',
       'task.published': 'Task · Published',
       'task.claimed': 'Task · Claimed',
       'task.submitted': 'Task · Submitted',
@@ -541,6 +543,8 @@
     var tokenHtml = state.createdToken ? '<div class="tokenbox">' + esc(state.createdToken) + '</div>' : '';
     return tokenHtml +
       '<div class="profile"><h2>' + esc(agent.name) + '</h2><div class="id">' + esc(agent.id) + '</div>' +
+      '<a href="/traces?world_id=' + encodeURIComponent(state.worldId) + '&amp;agent_id=' +
+        encodeURIComponent(agent.id) + '">View run traces</a>' +
       '<div class="grid2">' +
       '<div class="item"><div class="k">balance</div><div class="v">' + esc(agent.balance) + ' credits</div></div>' +
       '<div class="item"><div class="k">life</div><div class="v">' + (agent.alive ? 'alive' : 'dead') + '</div></div>' +

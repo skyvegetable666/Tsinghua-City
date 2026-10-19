@@ -55,6 +55,7 @@ def live_city(tmp_path, monkeypatch):
     settings = Settings(
         database_url=f"sqlite:///{tmp_path / 'city.db'}", admin_token="integration-admin",
         scheduler_enabled=False, runtime_log_dir=str(tmp_path / "logs"),
+        trace_dir=str(tmp_path / "transcripts"),
         docker_api_url=f"http://host.docker.internal:{port}",
         docker_image=os.environ.get("CITY_DOCKER_IMAGE", "tsinghua-city-agent:0.1"),
     )
@@ -100,6 +101,89 @@ def _state(name):
 def _token(name):
     return next(item.split("=", 1)[1] for item in _state(name)["Config"]["Env"]
                 if item.startswith("CITY_AGENT_TOKEN="))
+
+
+def test_successful_container_exit_exports_viewable_trace_without_restart(live_city):
+    client, admin, app = live_city
+    world = create_world(client, admin)
+    alice = create_agent(client, admin, world["id"], "alice")
+    command = ["python", "-c", (
+        "import json; print(json.dumps({'type':'assistant_text','run_id':'finite-run',"
+        "'text':'done'}), flush=True)"
+    )]
+    base, runtime = _start(client, admin, world, alice, command, restart_policy="on_failure")
+    name = DockerRuntimeAdapter.container_name(runtime["id"])
+    eventually(lambda: not _state(name)["State"]["Running"])
+    ended = client.get(base, headers=admin).json()
+    assert ended["status"] == "STOPPED"
+    assert ended["exit_code"] == 0
+    assert ended["next_restart_at"] is None
+    assert tick_once(app.state.session_factory, app.state.runtime_manager)["restarted_runtimes"] == 0
+    files = client.get(f"/v1/traces?agent_id={alice['id']}", headers=admin).json()
+    assert len(files) == 1
+    events = client.get("/v1/traces/" + files[0]["name"], headers=admin).json()["events"]
+    assert events[0]["text"] == "done"
+    assert events[0]["world_id"] == world["id"]
+    assert docker("ps", "-aq", "--filter", "name=^/" + name + "$") == ""
+
+
+def test_terminal_death_removes_container_without_restart(live_city):
+    client, admin, app = live_city
+    world = create_world(client, admin)
+    alice = create_agent(client, admin, world["id"], "alice")
+    base, runtime = _start(client, admin, world, alice,
+                           ["python", "-c", "import time; time.sleep(300)"],
+                           restart_policy="on_failure")
+    name = DockerRuntimeAdapter.container_name(runtime["id"])
+    with app.state.session_factory() as session:
+        session.get(Agent, alice["id"]).death_at = 0
+        session.commit()
+    result = tick_once(app.state.session_factory, app.state.runtime_manager)
+    assert result["stopped_dead_runtimes"] == 1
+    assert result["restarted_runtimes"] == 0
+    assert client.get(base, headers=admin).json()["status"] == "STOPPED"
+    assert client.post(base + "/resume", headers=admin).status_code == 409
+    assert docker("ps", "-aq", "--filter", "name=^/" + name + "$") == ""
+    assert docker("network", "ls", "-q", "--filter", "name=^" + name + "$") == ""
+
+
+def test_running_container_delivers_peer_message_between_cli_turns(live_city):
+    from conftest import agent_headers
+
+    from tsinghua_city.models import Message
+
+    client, admin, app = live_city
+    world = create_world(client, admin)
+    alice = create_agent(client, admin, world["id"], "alice")
+    bob = create_agent(client, admin, world["id"], "bob")
+    sent = client.post("/v1/me/messages", headers=agent_headers(bob), json={
+        "to": "alice", "body": "A real message for the running harness.",
+    }).json()
+    fake = (
+        "#!/usr/bin/env python3\nimport json, sys\n"
+        "print(json.dumps({'type':'system','subtype':'init','session_id':'test-session'}), flush=True)\n"
+        "for line in sys.stdin:\n"
+        "    print(json.dumps({'type':'result','is_error':False,'total_cost_usd':0.01}), flush=True)\n"
+    )
+    bootstrap = (
+        "import pathlib, os; p=pathlib.Path('/work/fake-claude'); "
+        f"p.write_text({fake!r}); p.chmod(0o700); "
+        "os.execvp('python', ['python', '-m', 'tsinghua_city.claude_agent', "
+        "'--claude-bin', str(p), '--max-rounds', '3', '--listen-seconds', '0', "
+        "'--max-budget-usd', '0.5', '--run-timeout', '30'])"
+    )
+    base, runtime = _start(client, admin, world, alice, ["python", "-c", bootstrap])
+    name = DockerRuntimeAdapter.container_name(runtime["id"])
+    eventually(lambda: not _state(name)["State"]["Running"])
+    ended = client.get(base, headers=admin).json()
+    assert ended["exit_code"] == 0, Path(ended["log_path"]).read_text()
+    assert ended["status"] == "STOPPED"
+    with app.state.session_factory() as session:
+        assert session.get(Message, sent["id"]).read_at is not None
+    files = client.get(f"/v1/traces?agent_id={alice['id']}", headers=admin).json()
+    events = client.get("/v1/traces/" + files[0]["name"], headers=admin).json()["events"]
+    assert sum(event["type"] == "turn_result" for event in events) == 2
+    assert any(event["type"] == "inbox_delivered" for event in events)
 
 
 def test_real_isolation_rotation_persistence_and_recovery(live_city):

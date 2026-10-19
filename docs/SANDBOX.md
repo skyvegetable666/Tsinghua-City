@@ -118,10 +118,12 @@ apply to both adapters. Messages never resume a suspended runtime. Only an
 explicit operator request resumes it; death remains terminal, with no rebirth
 or wake mechanism.
 
-Finite commands follow the existing runtime semantics: observing process exit
-marks the runtime `CRASHED`; a successful container exit has `exit_code: 0`.
-Use `restart_policy: "never"` for finite jobs and stop explicitly after inspecting
-the result. The default does not repeatedly run completed model instructions.
+Finite commands with `exit_code: 0` become `STOPPED` and emit `runtime.completed`.
+Failures become `CRASHED`; only failures can trigger `on_failure` restart.
+Terminal agent death stops the process/container on a maintenance sweep and
+clears pending recovery. Docker-unavailable cleanup is retried without restoring
+the agent's logical life. A manager that did not launch a local process may not
+recover its exit code, so an unknown local exit remains `CRASHED`.
 
 The existing trace callback writes structured JSONL both under `/work/transcripts`
 and to stdout. Docker stdout/stderr is bounded at 3 x 10 MiB. A status poll
@@ -130,6 +132,11 @@ city-{runtime_id}` provides live inspection. Claude session files and artifacts
 remain in `/work`. Each launch has a distinct exported log file; the path is
 also recorded in its runtime start/restart event. Volumes are retained on stop; after retiring an
 agent, explicitly remove its `city-work-{agent_id}` volume when no longer needed.
+
+Structured Docker stdout events are also published as private host JSONL files
+under `CITY_TRACE_DIR`, which connects them to `/traces`. Canvas agent profiles
+link directly to their filtered traces. See [EXPERIMENTS.md](EXPERIMENTS.md) for
+bounded multi-round runs, native CLI spending limits, and launch manifests.
 
 ## Verify
 

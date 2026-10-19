@@ -164,7 +164,13 @@ def create_app(
         return Path(settings.trace_dir).expanduser().resolve()
 
     @app.get("/v1/traces")
-    def list_traces(_admin: None = Depends(require_admin)) -> list[dict[str, Any]]:
+    def list_traces(
+        world_id: str | None = None,
+        agent_id: str | None = None,
+        run_id: str | None = None,
+        experiment_id: str | None = None,
+        _admin: None = Depends(require_admin),
+    ) -> list[dict[str, Any]]:
         root = trace_root()
         if not root.is_dir():
             return []
@@ -174,8 +180,27 @@ def create_app(
         ):
             if not path.is_file():
                 continue
+            if path.is_symlink():
+                continue
+            try:
+                with path.open(encoding="utf-8") as handle:
+                    metadata = json.loads(handle.readline())
+            except (OSError, ValueError):
+                metadata = {}
+            if not isinstance(metadata, dict):
+                metadata = {}
+            filters = {
+                "world_id": world_id, "agent_id": agent_id,
+                "run_id": run_id, "experiment_id": experiment_id,
+            }
+            if any(value is not None and metadata.get(key) != value
+                   for key, value in filters.items()):
+                continue
             stat = path.stat()
-            rows.append({"name": path.name, "size": stat.st_size, "modified": stat.st_mtime})
+            rows.append({
+                "name": path.name, "size": stat.st_size, "modified": stat.st_mtime,
+                **{key: metadata.get(key) for key in filters},
+            })
             if len(rows) >= 200:
                 break
         return rows
@@ -184,16 +209,19 @@ def create_app(
     def read_trace(
         name: str,
         limit: int = Query(default=5000, ge=1, le=20000),
+        offset: int = Query(default=0, ge=0),
         _admin: None = Depends(require_admin),
     ) -> dict[str, Any]:
         if Path(name).name != name or not name.endswith(".jsonl"):
             raise HTTPException(status_code=404, detail="trace not found")
         path = trace_root() / name
-        if not path.is_file():
+        if not path.is_file() or path.is_symlink():
             raise HTTPException(status_code=404, detail="trace not found")
         events: list[Any] = []
         with path.open(encoding="utf-8") as handle:
-            for line in handle:
+            for index, line in enumerate(handle):
+                if index < offset:
+                    continue
                 line = line.strip()
                 if not line:
                     continue
@@ -202,8 +230,8 @@ def create_app(
                 except json.JSONDecodeError:
                     events.append({"type": "raw", "text": line})
                 if len(events) >= limit:
-                    break
-        return {"name": name, "events": events}
+                    return {"name": name, "events": events, "next_offset": index + 1}
+        return {"name": name, "events": events, "next_offset": None}
 
     @app.get("/health", response_model=HealthOut)
     def health() -> dict[str, Any]:

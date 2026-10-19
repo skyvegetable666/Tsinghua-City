@@ -2,6 +2,16 @@
 
 This is a compact milestone log; Git history remains authoritative.
 
+## Working runtime / experiment fixes (base `0c4caf2`)
+
+- Successful exits become STOPPED and cannot trigger on-failure recovery.
+- Terminal death stops running execution; unavailable-Docker cleanup is retried.
+- Docker structured transcripts feed the filtered and paginated trace viewer.
+- Versioned experiment manifests provide batch start/stop and condition archives.
+- Existing Claude Code supports bounded message-driven user turns and native
+  budget limits; suspended runtimes still require explicit operator resume.
+- Validation: 73 passed / 2 Postgres-only skipped, including seven real Docker checks.
+
 | Commit | Milestone |
 | --- | --- |
 | `8496397` | Phase 1 world-state service, MCP tools, CLI, SQLite/Postgres schema |

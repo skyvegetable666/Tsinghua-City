@@ -53,3 +53,6 @@ async def test_harness_with_fake_cli(tmp_path):
     resumed = harness._command()
     assert resumed[resumed.index("--resume") + 1] == "existing-session"
     assert "--session-id" not in resumed
+    harness.max_budget_usd = 0.75
+    bounded = harness._command()
+    assert bounded[bounded.index("--max-budget-usd") + 1] == "0.75"

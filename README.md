@@ -12,11 +12,12 @@ inside Docker, including payment, life extension, and session resume.
 - Testing guide: [docs/TESTING.md](docs/TESTING.md)
 - Architecture decisions: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 - First product and reuse map: [docs/FIRST_PRODUCT.md](docs/FIRST_PRODUCT.md)
+- Bounded experiments: [docs/EXPERIMENTS.md](docs/EXPERIMENTS.md)
 - Milestone history: [docs/CHANGELOG.md](docs/CHANGELOG.md)
 - Third-party notices: [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)
 
 - **Code checkpoint:** `9e4c066`
-- **With real Docker tests:** `49 passed, 2 skipped`
+- **With real Docker tests:** `73 passed, 2 skipped`
 - **Old prototype:** frozen under `archive/genesis-lab/` (zero runtime imports)
 
 ---
@@ -75,7 +76,8 @@ inside Docker, including payment, life extension, and session resume.
 - **no durable multi-worker runtime leases**
 - **Canvas is an early admin monitor**, not the final experiment UI
 - **the deterministic reference harness is still not a model**
-- **no experiment manifest/run comparison**
+- **versioned experiment manifests and bounded Docker launch are available**;
+  cross-run metrics and comparison are still pending
 - **no named external-employer budgets**
 - **no memory system**
 
@@ -168,10 +170,20 @@ prints the resulting task board. Journals are written under
 `runs/demo-journals/<world>/<agent>.jsonl`.
 
 The harness is model-free by design: it demonstrates MCP participation, not
-intelligent behavior. Replace `tsinghua_city/harness_policy.py` with an LLM
-loop for a real experiment.
+intelligent behavior. Use the packaged Claude Code harness for real agents.
 
 ### Real Claude Code agents
+
+For a bounded multi-agent launch, configure `examples/two-agent.json`, then run:
+
+```sh
+tsinghua-city run-experiment examples/two-agent.json --dry-run
+tsinghua-city run-experiment examples/two-agent.json
+```
+
+This archives the conditions, creates all peers, and starts Docker runtimes with
+native Claude budget limits. Messages continue an already running harness only
+between turns. See [EXPERIMENTS.md](docs/EXPERIMENTS.md).
 
 The reference demo is deterministic and proves the MCP loop/task cycle.
 For real model agents, the Docker sandbox packages Claude Code and connects it

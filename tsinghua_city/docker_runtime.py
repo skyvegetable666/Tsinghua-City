@@ -74,11 +74,33 @@ class DockerRuntimeAdapter:
             raise DomainError("refusing to manage a foreign Docker resource", 409)
         return info
 
-    def _export_logs(self, name: str, path: Path) -> None:
+    def _export_logs(self, name: str, path: Path, runtime: AgentRuntime) -> None:
         logs = self._run(["logs", name])
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(logs or "", encoding="utf-8")
         path.chmod(0o600)
+        records = []
+        for line in (logs or "").splitlines():
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(event, dict) and isinstance(event.get("type"), str):
+                records.append(json.dumps({
+                    **event, "world_id": runtime.world_id, "agent_id": runtime.agent_id,
+                    "runtime_id": runtime.id,
+                }, ensure_ascii=False))
+        if records:
+            root = Path(self.settings.trace_dir).expanduser().resolve()
+            root.mkdir(parents=True, exist_ok=True)
+            # Polling must never expose a partially rewritten transcript to the viewer.
+            descriptor, temporary = tempfile.mkstemp(dir=root)
+            try:
+                with os.fdopen(descriptor, "w", encoding="utf-8") as output:
+                    output.write("\n".join(records) + "\n")
+                os.replace(temporary, root / (path.stem + ".jsonl"))
+            finally:
+                Path(temporary).unlink(missing_ok=True)
 
     def start(self, *, runtime_id, command, agent_id, world_id, token) -> StartResult:
         if not command or any(not isinstance(part, str) or not part for part in command):
@@ -137,7 +159,7 @@ class DockerRuntimeAdapter:
         if info is None:
             return False
         if runtime.log_path:
-            self._export_logs(name, Path(runtime.log_path))
+            self._export_logs(name, Path(runtime.log_path), runtime)
         return bool(info["state"]["Running"])
 
     def stop(self, runtime: AgentRuntime) -> int | None:
@@ -149,7 +171,7 @@ class DockerRuntimeAdapter:
                 self._run(["stop", "--time", "5", name])
                 info = self._owned("container", name, runtime.id)
             if runtime.log_path:
-                self._export_logs(name, Path(runtime.log_path))
+                self._export_logs(name, Path(runtime.log_path), runtime)
             exit_code = info["state"]["ExitCode"]
             self._run(["rm", name])
         if self._owned("network", name, runtime.id) is not None:

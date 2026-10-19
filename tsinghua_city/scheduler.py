@@ -23,12 +23,14 @@ def tick_once(session_factory, runtime_manager=None) -> dict[str, int]:
     reaped = 0
     crashed = 0
     restarted = 0
+    stopped_dead = 0
     with session_factory() as session:
         worlds = session.scalars(select(World).where(World.status == "active")).all()
         for world in worlds:
             expired += service.expire_tasks(session, world)
             reaped += service.reap_expired(session, world)
             if runtime_manager is not None:
+                stopped_dead += runtime_manager.stop_dead(session, world)
                 crashed += runtime_manager.poll_running(session, world)
                 restarted += runtime_manager.restart_due(session, world)
     return {
@@ -36,6 +38,7 @@ def tick_once(session_factory, runtime_manager=None) -> dict[str, int]:
         "reaped_agents": reaped,
         "crashed_runtimes": crashed,
         "restarted_runtimes": restarted,
+        "stopped_dead_runtimes": stopped_dead,
     }
 
 

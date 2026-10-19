@@ -1,6 +1,6 @@
 # Architecture and build-vs-reuse decisions
 
-This document records build-vs-reuse choices through the Phase 3 local-runtime checkpoint. It is not a second design baseline; [Design.md](../Design.md) wins when they conflict. Current state is summarized in [STATUS.md](STATUS.md).
+This document records build-vs-reuse choices through the Docker/experiment checkpoint. It is not a second design baseline; [Design.md](../Design.md) wins when they conflict. Current state is summarized in [STATUS.md](STATUS.md).
 
 ## 1. The center of gravity
 
@@ -50,14 +50,21 @@ Phase 3 core (runtime manager):
 - Per-runtime log and generated MCP stdio config.
 - Agent token rotation on start/resume; raw token never stored in the DB.
 - Startup/process-loss reconciliation marks lost runtimes crashed.
-- Maintenance sweep resumes suspended runtimes that have unread inbox messages.
+- Messages never resume suspended runtimes; operator resume is explicit.
 - Optional on-failure restart with exponential backoff and max attempts.
 - Terminating a CRASHED runtime cancels its pending restart.
 
-Not yet: container/sandbox adapter, durable multi-worker scheduler, safe-point
-injection into an active model call, durable multi-worker restart/lease policy,
-Web Canvas, memory, experiment manifests, named external-employer budgets,
-group messaging, board moderation/editing.
+Docker and experiment additions:
+
+- Thin Docker CLI adapter, non-root containers, private persistent workspaces.
+- Official Claude Code harness with native turn/budget controls.
+- Optional inbox delivery only between user turns in an already running harness.
+- Successful exits are STOPPED; death also stops running execution.
+- Canvas and a filtered/paginated trace viewer, including Docker transcripts.
+- Versioned experiment manifests, batch start/stop, and condition archives.
+
+Not yet: durable multi-worker scheduler/restart leases, experiment comparison,
+named external-employer budgets, group messaging, board moderation/editing.
 
 ## 3. Build vs reuse
 
@@ -68,12 +75,12 @@ group messaging, board moderation/editing.
 | MCP | official MCP/FastMCP | same | do not invent a world protocol |
 | Messaging | DB-backed inbox | durable queue + DB | storage/ack first; transport later |
 | Scheduling | in-process sweep (`tick`) | Temporal or Postgres scheduler | current sweep is idempotent but not multi-worker/durable |
-| Runtime/sandbox | local subprocess adapter | OpenHands SDK/Agent Server, E2B, Docker/K8s | local adapter is for harness tests, not isolation |
-| Agent harness | deterministic reference harness + Claude Code CLI port | Claude Code / OpenHands / custom adapter | Claude stream-json path is fake-CLI tested; live model pending |
+| Runtime/sandbox | local subprocess + Docker CLI adapters | Docker; other providers later | local adapter is for harness tests, not isolation |
+| Agent harness | reference harness + official Claude Code CLI | same, behind thin adapters | stream-json capture; real model sandbox smoke verified |
 | Observability | event table | OpenTelemetry + Prometheus/Grafana or Langfuse/Phoenix | research events stay domain-specific; tooling reuses |
-| Web UI | none | Canvas-style client over World API | avoid direct DB/CLI coupling |
+| Web UI | Canvas + read-only traces | experiment comparison later | avoid direct DB/CLI coupling |
 | SDK | none | thin World API client | one control surface |
-| Experiment tracking | none | Hydra/OmegaConf + MLflow/W&B/DVC | reproducible conditions |
+| Experiment tracking | Pydantic JSON manifest and condition archive | MLflow/W&B/DVC if needed | conditions versioned; comparisons deferred |
 | Memory | none | harness/Letta/Mem0, later | not Phase 1 |
 
 ## 4. What must remain custom
@@ -127,7 +134,7 @@ group messaging, board moderation/editing.
 - Messages do not resume suspended runtimes; operator resume is explicit.
 - Inbox delivery notification for running harnesses.
 - Named external-employer budgets.
-- Experiment config/manifest.
+- Experiment config/manifest implemented; result comparison remains pending.
 - OTel event export.
 
 ### Phase 3: runtime (local adapter done)
@@ -139,7 +146,7 @@ group messaging, board moderation/editing.
   - no wake or rebirth; suspended runtimes resume only by operator request.
   - ~~on-failure restart with backoff and max attempts.~~ (done)
   - ~~terminate a crashed runtime to cancel restart.~~ (done)
-- Sandbox provider choice: OpenHands Agent Server, E2B, or Docker/K8s (next).
+- Sandbox provider: Docker CLI adapter implemented; additional providers deferred.
 - Recovery:
   - ~~process loss must not destroy identity/credits.~~ (database identity persists)
   - ~~restart with the same agent identity.~~ (resume rotates token and starts a new process)

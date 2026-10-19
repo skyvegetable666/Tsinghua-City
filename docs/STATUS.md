@@ -36,6 +36,9 @@ real two-agent task cycle. This remains a single-machine research alpha.
 | Claude harness | Claude Code CLI stream-json port + JSONL trace; fake-CLI tested |
 | Canvas | early admin monitor at /canvas: worlds/agents/runtimes/tasks/posts/events |
 | Traces | read-only /traces viewer over host JSONL run traces |
+| Docker trace ingestion | structured stdout exported to host JSONL; world/agent/run filters |
+| Experiment launch | version-1 manifest, batch start/stop, condition archive, failed-launch cleanup |
+| Bounded continuation | inbox delivery between user turns; CLI cost/turn limits and wall-time limit |
 | Token rotation | runtime start/resume/auto-restart; old tokens invalidated |
 | Runtime MCP config | generated per process; removed on stop |
 | Windows proxy handling | loopback clients bypass WinINET |
@@ -46,7 +49,7 @@ real two-agent task cycle. This remains a single-machine research alpha.
 Local checkpoint with real Docker integration enabled:
 
 ~~~text
-49 passed, 2 skipped
+73 passed, 2 skipped
 ~~~
 
 The skipped tests are Postgres-only concurrency checks. The two-agent reference
@@ -89,7 +92,8 @@ The pre-sandbox Postgres expectation was `39 passed`.
 - Docker has outbound network access and a host API gateway, not an egress allowlist.
 - No safe-point injection into an active model call.
 - No durable multi-worker runtime leases or ownership.
-- Finite commands retain the existing CRASHED-on-exit status; inspect exit_code.
+- Exit code 0 becomes STOPPED; an unknown exit from a local process launched by
+  another manager remains CRASHED because its exit code cannot be recovered.
 - Canvas is an early admin monitor, not the final experiment UI/run comparison.
 - Named external-employer accounts/budgets are not implemented.
 - In-process scheduler is single-worker and not durable.
@@ -98,8 +102,15 @@ The pre-sandbox Postgres expectation was `39 passed`.
 ## Good next checkpoint
 
 The first real-agent sandbox/task-cycle slice is verified. The next checkpoint
-can connect transcript inspection to Canvas and add operator cost
-budgets for longer unattended experiments.
+can add cross-experiment metrics and comparison. Docker transcript inspection,
+versioned launch manifests, and native CLI spending limits are now connected.
+
+The lifecycle regression suite verifies successful completion without automatic
+restart, terminal-death cleanup and Docker-unavailable retry, and safe message
+delivery/acknowledgement across model turns. The continuation tests use a fake
+CLI both on the host and in real Docker; this change does not add another paid
+model experiment. CLI spending limits rely on provider-reported pricing and are
+not provider-account billing caps. See [EXPERIMENTS.md](EXPERIMENTS.md).
 
 See [FIRST_PRODUCT.md](FIRST_PRODUCT.md) for the reuse map and exact P0 order.
 

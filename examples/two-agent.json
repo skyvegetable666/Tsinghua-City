@@ -1,0 +1,39 @@
+{
+  "version": 1,
+  "name": "two-agent",
+  "world": {
+    "initial_credits": 50,
+    "initial_life_seconds": 1800,
+    "seconds_per_credit": 60
+  },
+  "agents": [
+    {
+      "name": "alice",
+      "model": "YOUR_CLAUDE_COMPATIBLE_MODEL",
+      "prompt": "Inspect your state, public board, tasks and peers through the world MCP tools. Decide independently what useful work or cooperation to pursue. Notes are optional. Death is terminal.",
+      "limits": {
+        "max_budget_usd": 0.5,
+        "max_turns": 20,
+        "max_rounds": 10,
+        "run_timeout": 600,
+        "turn_timeout": 120,
+        "listen_seconds": 60,
+        "poll_interval": 1
+      }
+    },
+    {
+      "name": "bob",
+      "model": "YOUR_CLAUDE_COMPATIBLE_MODEL",
+      "prompt": "Inspect your state, public board, tasks and peers through the world MCP tools. Decide independently what useful work or cooperation to pursue. Notes are optional. Death is terminal.",
+      "limits": {
+        "max_budget_usd": 0.5,
+        "max_turns": 20,
+        "max_rounds": 10,
+        "run_timeout": 600,
+        "turn_timeout": 120,
+        "listen_seconds": 60,
+        "poll_interval": 1
+      }
+    }
+  ]
+}

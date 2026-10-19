@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+from pathlib import Path
 
 from sqlalchemy import select
 
@@ -115,6 +116,32 @@ def cmd_mcp(_args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_experiment(args: argparse.Namespace) -> int:
+    import httpx
+
+    from .experiments import ExperimentManifest, launch_experiment, stop_experiment
+
+    settings = load_settings()
+    path = Path(args.path)
+    if args.command == "run-experiment":
+        manifest = ExperimentManifest.model_validate_json(path.read_text(encoding="utf-8"))
+        if args.dry_run:
+            print(manifest.model_dump_json(indent=2))
+            return 0
+    with httpx.Client(base_url=settings.api_url, trust_env=False, timeout=120) as client:
+        headers = {"Authorization": "Bearer " + settings.admin_token}
+        if args.command == "run-experiment":
+            result = launch_experiment(
+                manifest, client, headers=headers, archive_dir=Path(args.archive_dir),
+            )
+        else:
+            report = json.loads(path.read_text(encoding="utf-8"))
+            result = stop_experiment(report, client, headers=headers)
+            path.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
+        print(json.dumps(result, indent=2))
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="tsinghua-city")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -146,6 +173,15 @@ def build_parser() -> argparse.ArgumentParser:
 
     mcp = sub.add_parser("mcp", help="run the MCP server (stdio) for one agent")
     mcp.set_defaults(func=cmd_mcp)
+
+    experiment = sub.add_parser("run-experiment", help="launch a versioned Docker experiment")
+    experiment.add_argument("path", help="experiment JSON manifest")
+    experiment.add_argument("--archive-dir", default="runs/experiments")
+    experiment.add_argument("--dry-run", action="store_true")
+    experiment.set_defaults(func=cmd_experiment)
+    stop = sub.add_parser("stop-experiment", help="stop runtimes from an archived run.json")
+    stop.add_argument("path", help="path to the archived run.json")
+    stop.set_defaults(func=cmd_experiment)
     return parser
 
 
