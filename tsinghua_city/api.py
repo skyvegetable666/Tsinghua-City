@@ -372,6 +372,46 @@ def create_app(
         message = service.send_operator_message(session, world, agent, body.body)
         return service.operator_message_view(message)
 
+    def manifest_root() -> Path:
+        return Path(settings.manifest_dir).expanduser().resolve()
+
+    @app.get("/v1/worlds/{world_id}/agents/{agent_id}/manifests")
+    def list_manifests(
+        world_id: str,
+        agent_id: str,
+        _admin: None = Depends(require_admin),
+        session: Session = Depends(get_db),
+    ) -> list[dict[str, Any]]:
+        _world, _agent = runtime_subject(world_id, agent_id, session)
+        root = manifest_root()
+        if not root.is_dir():
+            return []
+        rows = []
+        for path in sorted(root.glob("*.json"), key=lambda item: item.stat().st_mtime, reverse=True):
+            try:
+                payload = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                continue
+            if payload.get("world_id") != world_id or payload.get("agent_id") != agent_id:
+                continue
+            rows.append({"name": path.name, "modified": path.stat().st_mtime, "manifest": payload})
+        return rows
+
+    @app.get("/v1/manifests/{name}")
+    def read_manifest(
+        name: str,
+        _admin: None = Depends(require_admin),
+    ) -> dict[str, Any]:
+        if Path(name).name != name or not name.endswith(".json"):
+            raise HTTPException(status_code=404, detail="manifest not found")
+        path = manifest_root() / name
+        if not path.is_file():
+            raise HTTPException(status_code=404, detail="manifest not found")
+        try:
+            return json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise HTTPException(status_code=500, detail="manifest is unreadable") from exc
+
     @app.get(
         "/v1/worlds/{world_id}/agents/{agent_id}/runtime",
         response_model=RuntimeOut,

@@ -37,6 +37,7 @@ real two-agent task cycle. This remains a single-machine research alpha.
 | Claude harness | Claude Code CLI stream-json port + JSONL trace; fake-CLI tested |
 | Canvas | early admin monitor at /canvas: worlds/agents/runtimes/tasks/posts/events |
 | Traces | read-only /traces viewer over host JSONL run traces |
+| Run manifests | secret-free reproducibility records per runtime start |
 | Token rotation | runtime start/resume/auto-restart; old tokens invalidated |
 | Runtime MCP config | generated per process; removed on stop |
 | Windows proxy handling | loopback clients bypass WinINET |
@@ -47,7 +48,7 @@ real two-agent task cycle. This remains a single-machine research alpha.
 Local checkpoint with real Docker integration enabled:
 
 ~~~text
-52 passed, 2 skipped
+53 passed, 2 skipped
 ~~~
 
 The skipped tests are Postgres-only concurrency checks. The two-agent reference

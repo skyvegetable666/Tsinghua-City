@@ -26,6 +26,7 @@ class Settings:
     api_url: str = "http://127.0.0.1:8000"
     runtime_log_dir: str = "runs/runtime"
     trace_dir: str = "runs/transcripts"
+    manifest_dir: str = "runs/manifests"
     docker_image: str = "tsinghua-city-agent:0.1"
     docker_api_url: str = "http://host.docker.internal:8000"
     docker_memory: str = "1g"
@@ -53,6 +54,7 @@ def load_settings() -> Settings:
         api_url=os.environ.get("CITY_API_URL", "http://127.0.0.1:8000").rstrip("/"),
         runtime_log_dir=os.environ.get("CITY_RUNTIME_LOG_DIR", "runs/runtime"),
         trace_dir=os.environ.get("CITY_TRACE_DIR", "runs/transcripts"),
+        manifest_dir=os.environ.get("CITY_MANIFEST_DIR", "runs/manifests"),
         docker_image=os.environ.get("CITY_DOCKER_IMAGE", "tsinghua-city-agent:0.1"),
         docker_api_url=os.environ.get(
             "CITY_DOCKER_API_URL", "http://host.docker.internal:8000"

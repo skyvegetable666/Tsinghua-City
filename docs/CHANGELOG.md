@@ -25,7 +25,8 @@ This is a compact milestone log; Git history remains authoritative.
 - Claude Code stream-json harness port and `tsinghua-city-agent` entrypoint
 - Docker sandbox image reference in `deploy/`
 - read-only /traces viewer for JSONL run traces
-- local count: 48 passed / 6 skipped without Docker; 52 passed / 2 skipped with Docker
+- secret-free per-runtime experiment manifests
+- local count: 49 passed / 6 skipped without Docker; 53 passed / 2 skipped with Docker
 
 ## Verification snapshots
 
