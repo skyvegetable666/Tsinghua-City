@@ -1,0 +1,83 @@
+# Linux host reference deployment. The API orchestrator is trusted with Docker.
+services:
+  database:
+    image: postgres:17-bookworm
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: city
+      POSTGRES_USER: city
+      POSTGRES_PASSWORD_FILE: /run/secrets/database_password
+    secrets: [database_password]
+    volumes: ["database:/var/lib/postgresql/data"]
+    ports: ["127.0.0.1:5432:5432"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U city -d city"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+  api:
+    build:
+      context: ..
+      dockerfile: deploy/api.Dockerfile
+    restart: unless-stopped
+    network_mode: host
+    depends_on:
+      database:
+        condition: service_healthy
+    environment:
+      CITY_DATABASE_URL_FILE: /run/secrets/database_url
+      CITY_ADMIN_TOKEN_FILE: /run/secrets/admin_token
+      CITY_OPERATOR_TOKEN_FILE: /run/secrets/operator_token
+      CITY_VIEWER_TOKEN_FILE: /run/secrets/viewer_token
+      CITY_RUNTIME_HOST_ID: ${CITY_RUNTIME_HOST_ID:-city-host-1}
+      CITY_DOCKER_IMAGE: ${CITY_DOCKER_IMAGE:-tsinghua-city-agent:0.1}
+      CITY_DOCKER_API_URL: http://host.docker.internal:8000
+      CITY_DOCKER_MEMORY: ${CITY_DOCKER_MEMORY:-1g}
+      CITY_DOCKER_CPUS: ${CITY_DOCKER_CPUS:-1}
+      CITY_DOCKER_PIDS_LIMIT: ${CITY_DOCKER_PIDS_LIMIT:-128}
+      CITY_DOCKER_NETWORK_INTERNAL: ${CITY_DOCKER_NETWORK_INTERNAL:-0}
+      CITY_DOCKER_EGRESS_PROXY: ${CITY_DOCKER_EGRESS_PROXY:-}
+      CITY_DOCKER_VOLUME_DRIVER: ${CITY_DOCKER_VOLUME_DRIVER:-local}
+      CITY_DOCKER_VOLUME_OPTIONS: '${CITY_DOCKER_VOLUME_OPTIONS:-{}}'
+      CITY_DOCKER_STORAGE_QUOTA_REQUIRED: ${CITY_DOCKER_STORAGE_QUOTA_REQUIRED:-0}
+      CITY_ARCHIVE_RETENTION_DAYS: ${CITY_ARCHIVE_RETENTION_DAYS:-30}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      ANTHROPIC_AUTH_TOKEN: ${ANTHROPIC_AUTH_TOKEN:-}
+      ANTHROPIC_BASE_URL: ${ANTHROPIC_BASE_URL:-}
+    secrets: [database_url, admin_token, operator_token, viewer_token]
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - artifacts:/var/lib/city
+  proxy:
+    image: nginx:1.28-bookworm
+    restart: unless-stopped
+    network_mode: host
+    depends_on: [api]
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./certs:/etc/nginx/certs:ro
+  prometheus:
+    image: prom/prometheus:v3.5.0
+    profiles: [monitoring]
+    restart: unless-stopped
+    network_mode: host
+    command: ["--config.file=/etc/prometheus/prometheus.yml", "--web.listen-address=127.0.0.1:9090"]
+    secrets: [viewer_token]
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - metrics:/prometheus
+secrets:
+  database_password:
+    file: ./secrets/database_password
+  database_url:
+    file: ./secrets/database_url
+  admin_token:
+    file: ./secrets/admin_token
+  operator_token:
+    file: ./secrets/operator_token
+  viewer_token:
+    file: ./secrets/viewer_token
+volumes:
+  database:
+  artifacts:
+  metrics:

@@ -59,6 +59,34 @@ def check_state() -> dict[str, Any]:
 
 
 @mcp.tool()
+def create_conversation(name: str, members: list[str]) -> dict[str, Any]:
+    """Create a group conversation with named peers; you are included as a member."""
+    return _request("POST", "/v1/me/conversations", {"name": name, "members": members})
+
+
+@mcp.tool()
+def get_conversations() -> list[dict[str, Any]]:
+    """List only the group conversations you belong to."""
+    return _request("GET", "/v1/me/conversations")
+
+
+@mcp.tool()
+def send_group_message(conversation_id: str, body: str,
+                       client_message_id: str | None = None) -> dict[str, Any]:
+    """Send to a group you belong to; this never starts or resumes a runtime."""
+    return _request("POST", f"/v1/me/conversations/{conversation_id}/messages",
+                    {"body": body, "client_message_id": client_message_id})
+
+
+@mcp.tool()
+def get_group_messages(conversation_id: str, after: float = 0,
+                       limit: int = 50) -> list[dict[str, Any]]:
+    """Read your group's messages after a Unix timestamp."""
+    return _request("GET", f"/v1/me/conversations/{conversation_id}/messages"
+                    f"?after={float(after)}&limit={int(limit)}")
+
+
+@mcp.tool()
 def check_balance() -> dict[str, Any]:
     """Return your current credit balance."""
     return _request("GET", "/v1/me/balance")

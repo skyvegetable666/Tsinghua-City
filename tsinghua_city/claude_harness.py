@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import math
 import os
 import time
 import uuid
@@ -400,6 +401,9 @@ class ClaudeHarness:
             return
         if kind == "result":
             self.working = False
+            cost = event.get("total_cost_usd")
+            if type(cost) not in {int, float} or not math.isfinite(cost) or cost < 0:
+                cost = None
             result = {
                 "type": "turn_result",
                 "subtype": event.get("subtype"),
@@ -409,7 +413,7 @@ class ClaudeHarness:
                 "duration_ms": event.get("duration_ms"),
                 "duration_api_ms": event.get("duration_api_ms"),
                 "usage": event.get("usage") or {},
-                "cost_usd": event.get("total_cost_usd") or 0,
+                "cost_usd": cost,
                 "num_turns": event.get("num_turns"),
             }
             self.last_result = result

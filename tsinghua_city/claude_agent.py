@@ -229,7 +229,8 @@ async def _run(args: argparse.Namespace) -> int:
                         await inbox.acknowledge(delivered)
                     if round_index + 1 >= args.max_rounds:
                         break
-                    if args.max_budget_usd and result["cost_usd"] >= args.max_budget_usd:
+                    if (args.max_budget_usd and result["cost_usd"] is not None
+                            and result["cost_usd"] >= args.max_budget_usd):
                         limit_reason = "budget"
                         trace({"type": "run_limit", "reason": "budget"})
                         break

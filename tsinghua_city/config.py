@@ -8,8 +8,10 @@ parameter stored in Postgres/SQLite, not process configuration.
 from __future__ import annotations
 
 import os
+import socket
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from pathlib import Path
 
 DEFAULT_ADMIN_TOKEN = "dev-admin-token"
 
@@ -33,6 +35,19 @@ class Settings:
     docker_cpus: float = 1.0
     docker_pids_limit: int = 128
     public_workspace_volume: str = "city-public"
+    runtime_host_id: str = socket.gethostname()
+    viewer_token: str = ""
+    operator_token: str = ""
+    archive_retention_days: int = 30
+    docker_network_internal: bool = False
+    docker_egress_proxy: str = ""
+    docker_volume_driver: str = "local"
+    docker_volume_options: str = "{}"
+    docker_storage_quota_required: bool = False
+    model_gateway_url: str = ""
+    model_gateway_agent_url: str = ""
+    model_gateway_admin_key: str = ""
+    require_gateway_budget: bool = False
 
     @property
     def uses_default_admin_token(self) -> bool:
@@ -40,9 +55,13 @@ class Settings:
 
 
 def load_settings() -> Settings:
+    def secret(name, default=""):
+        file = os.environ.get(name + "_FILE")
+        return Path(file).read_text(encoding="utf-8").strip() if file else os.environ.get(name, default)
+
     return Settings(
-        database_url=os.environ.get("CITY_DATABASE_URL", "sqlite:///./runs/city.db"),
-        admin_token=os.environ.get("CITY_ADMIN_TOKEN", DEFAULT_ADMIN_TOKEN),
+        database_url=secret("CITY_DATABASE_URL", "sqlite:///./runs/city.db"),
+        admin_token=secret("CITY_ADMIN_TOKEN", DEFAULT_ADMIN_TOKEN),
         host=os.environ.get("CITY_HOST", "127.0.0.1"),
         port=int(os.environ.get("CITY_PORT", "8000")),
         log_level=os.environ.get("CITY_LOG_LEVEL", "info"),
@@ -65,6 +84,19 @@ def load_settings() -> Settings:
         public_workspace_volume=os.environ.get(
             "CITY_PUBLIC_WORKSPACE_VOLUME", "city-public"
         ),
+        runtime_host_id=os.environ.get("CITY_RUNTIME_HOST_ID", socket.gethostname()),
+        viewer_token=secret("CITY_VIEWER_TOKEN"),
+        operator_token=secret("CITY_OPERATOR_TOKEN"),
+        archive_retention_days=int(os.environ.get("CITY_ARCHIVE_RETENTION_DAYS", "30")),
+        docker_network_internal=os.environ.get("CITY_DOCKER_NETWORK_INTERNAL", "0") == "1",
+        docker_egress_proxy=os.environ.get("CITY_DOCKER_EGRESS_PROXY", ""),
+        docker_volume_driver=os.environ.get("CITY_DOCKER_VOLUME_DRIVER", "local"),
+        docker_volume_options=os.environ.get("CITY_DOCKER_VOLUME_OPTIONS", "{}"),
+        docker_storage_quota_required=os.environ.get("CITY_DOCKER_STORAGE_QUOTA_REQUIRED", "0") == "1",
+        model_gateway_url=os.environ.get("CITY_MODEL_GATEWAY_URL", ""),
+        model_gateway_agent_url=os.environ.get("CITY_MODEL_GATEWAY_AGENT_URL", ""),
+        model_gateway_admin_key=secret("CITY_MODEL_GATEWAY_ADMIN_KEY"),
+        require_gateway_budget=os.environ.get("CITY_REQUIRE_GATEWAY_BUDGET", "0") == "1",
     )
 
 

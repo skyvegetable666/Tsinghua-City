@@ -21,6 +21,7 @@ from .config import iso, utcnow
 from .models import (
     Account,
     Agent,
+    Employer,
     Event,
     LedgerEntry,
     LedgerTransaction,
@@ -409,7 +410,7 @@ def _post_transfer(
 ) -> LedgerTransaction:
     if amount <= 0:
         raise DomainError("amount must be positive", 400)
-    if debit.kind == "agent" and debit.balance < amount:
+    if debit.kind in {"agent", "employer"} and debit.balance < amount:
         raise DomainError("insufficient credits", 409)
     debit.balance -= amount
     credit.balance += amount
@@ -1079,6 +1080,9 @@ def _authorize_task_manager(
 
 
 def _task_funder_account(session: Session, task: Task) -> Account:
+    if task.employer_id:
+        employer = session.get(Employer, task.employer_id)
+        return session.get(Account, employer.account_id)
     if task.publisher_agent_id is None:
         return _system_account(session, task.world_id)
     publisher = session.get(Agent, task.publisher_agent_id)
@@ -1089,12 +1093,14 @@ def _task_funder_account(session: Session, task: Task) -> Account:
 
 def _task_view(session: Session, task: Task) -> dict[str, Any]:
     publisher = session.get(Agent, task.publisher_agent_id) if task.publisher_agent_id else None
+    employer = session.get(Employer, task.employer_id) if task.employer_id else None
     assignee = session.get(Agent, task.assignee_agent_id) if task.assignee_agent_id else None
     return {
         "id": task.id,
         "world_id": task.world_id,
         "source": task.source,
-        "publisher": publisher.name if publisher else "external",
+        "publisher": publisher.name if publisher else employer.name if employer else "external",
+        "employer_id": task.employer_id,
         "assignee": assignee.name if assignee else None,
         "title": task.title,
         "description": task.description,
@@ -1116,10 +1122,12 @@ def _find_task_by_key(
     world_id: str,
     publisher_agent_id: str | None,
     client_task_id: str,
+    employer_id: str | None = None,
 ) -> Task | None:
     query = select(Task).where(
         Task.world_id == world_id,
         Task.client_task_id == client_task_id,
+        Task.employer_id == employer_id,
     )
     if publisher_agent_id is None:
         query = query.where(Task.publisher_agent_id.is_(None))
@@ -1140,6 +1148,7 @@ def _create_task(
     reward: int,
     deadline_seconds: int | None,
     client_task_id: str | None = None,
+    employer: Employer | None = None,
 ) -> Task:
     title, description, acceptance_criteria, deadline_seconds = _validate_task_fields(
         title, description, acceptance_criteria, reward, deadline_seconds
@@ -1148,6 +1157,7 @@ def _create_task(
     request_hash = _request_hash(
         {
             "source": source,
+            **({"employer_id": employer.id} if employer else {}),
             "title": title,
             "description": description,
             "acceptance_criteria": acceptance_criteria,
@@ -1157,7 +1167,8 @@ def _create_task(
     )
     publisher_id = publisher.id if publisher else None
     if key is not None:
-        existing = _find_task_by_key(session, world.id, publisher_id, key)
+        existing = _find_task_by_key(session, world.id, publisher_id, key,
+                                     employer.id if employer else None)
         if existing is not None:
             if not _same_request(existing.request_hash, request_hash):
                 raise DomainError("client_task_id reused with different task fields", 409)
@@ -1169,6 +1180,7 @@ def _create_task(
             id=_id("task_"),
             world_id=world.id,
             publisher_agent_id=publisher_id,
+            employer_id=employer.id if employer else None,
             assignee_agent_id=None,
             source=source,
             title=title,
@@ -1186,7 +1198,9 @@ def _create_task(
         session.flush()
 
         if publisher is None:
-            debit = _system_account(session, world.id)
+            debit = session.get(Account, employer.account_id) if employer else _system_account(
+                session, world.id
+            )
             kind = "external_task_escrow"
             actor_id = None
         else:
@@ -1225,7 +1239,8 @@ def _create_task(
     except IntegrityError as exc:
         session.rollback()
         if key is not None:
-            existing = _find_task_by_key(session, world.id, publisher_id, key)
+            existing = _find_task_by_key(session, world.id, publisher_id, key,
+                                         employer.id if employer else None)
             if existing is not None and _same_request(existing.request_hash, request_hash):
                 return existing
         raise DomainError("concurrent task publication conflict", 409) from exc

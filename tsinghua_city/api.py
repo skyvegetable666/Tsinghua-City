@@ -90,7 +90,11 @@ def create_app(
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         init_db(engine)
-        runtime_manager.reconcile()
+        from .maintenance import host_lock
+
+        with host_lock(session_factory, settings) as locked:
+            if locked:
+                runtime_manager.reconcile()
         maintenance = (
             Scheduler(
                 session_factory,
@@ -124,10 +128,19 @@ def create_app(
     async def domain_error_handler(_request, exc: service.DomainError) -> JSONResponse:
         return JSONResponse(status_code=exc.status, content={"detail": exc.message})
 
-    def get_db():
+    def get_db(request: Request):
+        from contextlib import nullcontext
+
+        from .maintenance import host_lock
+
+        path = request.url.path
+        lifecycle = "/runtime" in path or path.endswith("/claude/start")
         session = session_factory()
         try:
-            yield session
+            with (host_lock(session_factory, settings) if lifecycle else nullcontext(True)) as locked:
+                if not locked:
+                    raise HTTPException(status_code=409, detail="host maintenance busy; retry")
+                yield session
         finally:
             session.close()
 
@@ -136,8 +149,17 @@ def create_app(
         authorization: str | None = Header(default=None),
     ) -> None:
         token = extract_bearer(authorization)
-        if not admin_matches(token, request.app.state.settings.admin_token):
-            raise HTTPException(status_code=401, detail="admin token required")
+        if admin_matches(token, settings.admin_token):
+            return
+        operator = admin_matches(token, settings.operator_token)
+        viewer = admin_matches(token, settings.viewer_token)
+        if (operator or viewer) and request.method in {"GET", "HEAD"}:
+            return
+        if operator and (request.url.path.startswith("/v1/experiments") or
+                         request.url.path.endswith(("/runtime/stop", "/runtime/suspend"))):
+            return
+        raise HTTPException(status_code=403 if operator or viewer else 401,
+                            detail="operator or admin privileges required")
 
     def require_agent(
         request: Request,
@@ -156,6 +178,20 @@ def create_app(
         if not service.refresh_alive(session, agent, world):
             raise HTTPException(status_code=409, detail="agent is dead")
         return AgentAuth(session=session, agent=agent, world=world)
+
+    from .operations_api import router as operations_router
+
+    app.include_router(operations_router(settings, session_factory, runtime_manager,
+                                        require_admin, require_agent, get_db))
+
+    @app.get("/metrics", include_in_schema=False)
+    def prometheus_metrics(_admin=Depends(require_admin), session=Depends(get_db)):
+        from fastapi.responses import Response
+        from prometheus_client import CONTENT_TYPE_LATEST
+
+        from .observability import render
+
+        return Response(render(session), headers={"Content-Type": CONTENT_TYPE_LATEST})
 
     @app.get("/canvas", include_in_schema=False)
     def canvas() -> FileResponse:

@@ -1,0 +1,42 @@
+name: Verify
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  database:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-bookworm
+        env:
+          POSTGRES_PASSWORD: city-test-only
+          POSTGRES_DB: city_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s
+          --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install -e '.[dev,postgres]'
+      - run: ruff check tsinghua_city tests migrations
+      - run: python scripts/check_hygiene.py
+      - run: pytest -q
+      - run: pytest -q
+        env:
+          CITY_TEST_DATABASE_URL: postgresql+psycopg://postgres:city-test-only@127.0.0.1:5432/city_test
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install -e '.[dev]'
+      - run: docker build -f deploy/agent.Dockerfile --label org.opencontainers.image.revision=${{ github.sha }} -t tsinghua-city-agent:${{ github.sha }} .
+      - run: pytest -q tests/test_sandbox_integration.py
+        env:
+          CITY_TEST_DOCKER: '1'
+          CITY_DOCKER_IMAGE: tsinghua-city-agent:${{ github.sha }}

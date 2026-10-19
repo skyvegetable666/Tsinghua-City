@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import os
+import tempfile
 import uuid
 from pathlib import Path
 from typing import Literal
@@ -51,8 +53,13 @@ class ExperimentManifest(BaseModel):
 
 
 def _archive(path: Path, data: dict) -> None:
-    path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
-    path.chmod(0o600)
+    descriptor, temporary = tempfile.mkstemp(dir=path.parent)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as output:
+            output.write(json.dumps(data, indent=2) + "\n")
+        os.replace(temporary, path)
+    finally:
+        Path(temporary).unlink(missing_ok=True)
 
 
 def launch_experiment(
@@ -120,13 +127,22 @@ def launch_experiment(
 
 
 def stop_experiment(report: dict, client, *, headers: dict) -> dict:
+    pending = False
     for agent in report["agents"]:
-        base = f"/v1/worlds/{report['world_id']}/agents/{agent['id']}/runtime"
-        current = client.get(base, headers=headers)
-        if current.status_code == 404:
-            continue
-        current.raise_for_status()
-        if current.json()["status"] != "STOPPED":
-            response = client.post(base + "/stop", headers=headers)
-            response.raise_for_status()
-    return {**report, "status": "stopped"}
+        try:
+            base = f"/v1/worlds/{report['world_id']}/agents/{agent['id']}/runtime"
+            current = client.get(base, headers=headers)
+            if current.status_code != 404:
+                current.raise_for_status()
+                if current.json()["status"] != "STOPPED":
+                    response = client.post(base + "/stop", headers=headers)
+                    response.raise_for_status()
+            agent["cleanup_pending"] = False
+            agent["runtime_status"] = "STOPPED" if current.status_code != 404 else "ABSENT"
+            agent.pop("stop_error", None)
+        except Exception:
+            # URLs, response bodies and exception text can contain provider credentials.
+            agent["cleanup_pending"] = True
+            agent["stop_error"] = "runtime cleanup failed; retry stop-experiment"
+            pending = True
+    return {**report, "status": "cleanup_pending" if pending else "stopped"}

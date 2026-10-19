@@ -44,6 +44,15 @@ def eventually(predicate, timeout=30):
     raise AssertionError("condition did not become true before timeout")
 
 
+@pytest.fixture(scope="module", autouse=True)
+def current_source_image():
+    from tsinghua_city.source_fingerprint import verify_image
+
+    if os.environ.get("CITY_TEST_DOCKER") == "1":
+        verify_image(os.environ.get("CITY_DOCKER_IMAGE", "tsinghua-city-agent:0.1"),
+                     Path(__file__).resolve().parents[1])
+
+
 @pytest.fixture
 def live_city(tmp_path, monkeypatch):
     monkeypatch.setenv("CITY_ADMIN_TOKEN", "host-admin-must-not-leak")
@@ -381,3 +390,37 @@ def test_foreign_volume_is_not_reused_or_deleted(live_city):
     assert client.get("/v1/me", headers={
         "Authorization": "Bearer " + alice["token"]
     }).status_code == 200
+
+
+def test_native_internal_network_and_tmpfs_capacity(live_city):
+    from dataclasses import replace
+
+    client, admin, app = live_city
+    world = create_world(client, admin)
+    agent = create_agent(client, admin, world["id"], "quota-probe")
+    settings = replace(app.state.settings, docker_network_internal=True,
+                       docker_storage_quota_required=True,
+                       docker_volume_options=json.dumps({"type": "tmpfs", "device": "tmpfs",
+                                                         "o": "size=16m,uid=1000,gid=1000"}))
+    app.state.runtime_manager._adapters["docker"] = DockerRuntimeAdapter(settings)
+    code = '''
+import errno, json, pathlib, time
+written = 0
+try:
+    with pathlib.Path('/work/fill').open('wb', buffering=0) as output:
+        for _ in range(64):
+            written += output.write(b'x' * 1024 * 1024)
+except OSError as exc:
+    assert exc.errno == errno.ENOSPC
+    print(json.dumps({'capacity_enforced': True, 'written': written}), flush=True)
+else:
+    raise AssertionError('workspace exceeded its capacity')
+time.sleep(30)
+'''
+    base, runtime = _start(client, admin, world, agent, ["python", "-c", code])
+    name = DockerRuntimeAdapter.container_name(runtime["id"])
+    assert json.loads(docker("network", "inspect", name))[0]["Internal"] is True
+    eventually(lambda: "capacity_enforced" in docker("logs", name))
+    result = json.loads(docker("logs", name))
+    assert result["written"] <= 16 * 1024 * 1024
+    assert client.post(base + "/stop", headers=admin).status_code == 200

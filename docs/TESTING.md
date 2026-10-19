@@ -1,8 +1,8 @@
 # Testing guide
 
 - **Integrated upstream base:** `4824d6b`
-- **Default expectation:** `74 passed, 9 skipped` (seven Docker + two Postgres checks)
-- **With Docker:** `81 passed, 2 skipped`
+- Current local implementation adds operation, policy, recovery and migration regressions.
+- See [STATUS.md](STATUS.md) for verified results and external acceptance limits.
 
 ## 1. Local setup
 
@@ -57,10 +57,9 @@ Use a **disposable** database. The fixture drops and recreates tables.
 pip install -e '.[dev,postgres]'
 export CITY_TEST_DATABASE_URL=postgresql+psycopg://postgres:city@127.0.0.1:5432/city_test
 pytest -q
-# expected without Docker: 76 passed, 7 skipped
 
 pytest -q tests/test_postgres_concurrency.py -vv
-# both tests must pass; one transfer is 409, the other ok
+# includes concurrent employer escrow; overspending must return 409
 ~~~
 
 The double-spend regression is:
@@ -238,7 +237,7 @@ Fresh database:
 
 ~~~bash
 tsinghua-city init
-# alembic_version = 0006_operator_messages
+# alembic_version = 0007_experiment_operations
 ~~~
 
 Incremental upgrade from an older checkpoint:
@@ -281,3 +280,35 @@ Include:
 - exit code and full traceback
 
 Never include agent tokens, admin tokens, or full MCP config files in reports.
+
+## 17. Operations and policy regressions
+
+```sh
+pytest -q tests/test_operations.py tests/test_infrastructure.py
+```
+
+These cover durable repeats, interrupted-launch cleanup without prompt replay,
+stop retries, immutable result snapshots, role boundaries, member-only groups,
+bounded-employer settlement/refunds, LiteLLM virtual-key issuance/revocation,
+storage admission, stale-image rejection, retention, and SQLite restore.
+The PostgreSQL suite additionally checks launch claiming and concurrent employer
+escrow. Migration tests run upgrade/downgrade/upgrade and retain existing worlds.
+
+The Docker suite requires an image built from the exact current packaged source.
+It now includes a real internal-network / bounded-tmpfs-volume probe. Its
+source-fingerprint failure gives a concrete rebuild command before any agent runs.
+The new `.github/workflows/verify.yml` builds that source explicitly in CI.
+
+For a paid two-turn test with the existing Anthropic-compatible provider environment:
+
+```sh
+PYTHONPATH=. CITY_DOCKER_IMAGE=tsinghua-city-agent:0.1 \
+python scripts/live_bounded_smoke.py --model "$ANTHROPIC_MODEL" --budget 0.25
+```
+
+This checks two successful user turns, two real world-tool results, acknowledgement
+of a peer message, a successful terminal exit, and HTTP 200 on an additional stop.
+It reports only booleans, statuses and cumulative costs, deletes its disposable
+containers/workspaces, and never prints provider credentials or raw transcripts.
+The budget is a native CLI spending limit, with the provider-account caveats in
+[OPERATIONS.md](OPERATIONS.md).

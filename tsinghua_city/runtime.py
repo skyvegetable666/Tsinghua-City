@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Any
 
 import psutil
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from . import service
@@ -274,6 +274,8 @@ class RuntimeManager:
         adapter_name: str | None = None,
     ) -> AgentRuntime:
         service.require_alive(session, agent, world)
+        if runtime is not None and runtime.owner_host not in {None, self.settings.runtime_host_id}:
+            raise service.DomainError("runtime belongs to a different execution host", 409)
         if runtime is not None and runtime.status == RUNNING:
             raise service.DomainError("agent runtime is already running", 409)
         adapter = self._adapter(adapter_name or (runtime.adapter if runtime else "local"))
@@ -284,9 +286,12 @@ class RuntimeManager:
             raise service.DomainError("restart_policy must be never or on_failure", 400)
         if max_restarts is not None and max_restarts < 0:
             raise service.DomainError("max_restarts must be >= 0", 400)
-        token = service.rotate_agent_token(session, agent)
         now = utcnow()
         runtime_id = runtime.id if runtime else "rt_" + uuid.uuid4().hex[:24]
+        from . import model_budget
+
+        provider = model_budget.issue(session, self.settings, runtime_id, command) if adapter.name == "docker" else None
+        token = service.rotate_agent_token(session, agent)
         try:
             started = adapter.start(
                 runtime_id=runtime_id,
@@ -294,9 +299,11 @@ class RuntimeManager:
                 agent_id=agent.id,
                 world_id=world.id,
                 token=token,
+                **({"provider_env": provider} if provider else {}),
             )
         except Exception:
             session.rollback()
+            self._revoke_model_key(session, runtime_id)
             raise
         if runtime is None:
             runtime = AgentRuntime(
@@ -314,6 +321,7 @@ class RuntimeManager:
             )
             session.add(runtime)
         runtime.adapter = adapter.name
+        runtime.owner_host = self.settings.runtime_host_id
         runtime.command = list(command)
         if restart_policy is not None:
             runtime.restart_policy = restart_policy
@@ -352,10 +360,20 @@ class RuntimeManager:
         except Exception:
             session.rollback()
             adapter.stop(runtime)
+            self._revoke_model_key(session, runtime_id)
             raise
         session.refresh(runtime)
         self._write_manifest(runtime)
         return runtime
+
+    def _revoke_model_key(self, session, runtime_id):
+        from .model_budget import revoke
+
+        try:
+            revoke(session, self.settings, runtime_id)
+        except service.DomainError:
+            session.rollback()
+            logger.warning("model key revocation pending for %s", runtime_id)
 
     def _write_manifest(self, runtime: AgentRuntime) -> None:
         """Write a secret-free run manifest for experiment reproducibility."""
@@ -428,6 +446,10 @@ class RuntimeManager:
         runtime = self.get_runtime(session, world, agent)
         if runtime is None:
             raise service.DomainError("runtime not found", 404)
+        if runtime.owner_host not in {None, self.settings.runtime_host_id}:
+            raise service.DomainError("runtime belongs to a different execution host", 409)
+        if runtime.status == STOPPED and status == STOPPED:
+            return runtime
         if runtime.status not in {RUNNING, SUSPENDED, CRASHED, LOST}:
             raise service.DomainError(f"runtime is not stoppable ({runtime.status})", 409)
         exit_code = self._adapter(runtime.adapter).stop(runtime)
@@ -445,6 +467,7 @@ class RuntimeManager:
         self._event(session, runtime, event_type, data={"exit_code": exit_code})
         session.commit()
         session.refresh(runtime)
+        self._revoke_model_key(session, runtime.id)
         return runtime
 
     def stop(self, session: Session, world: World, agent: Agent) -> AgentRuntime:
@@ -518,6 +541,8 @@ class RuntimeManager:
             session, runtime, "runtime.completed" if succeeded else "runtime.crashed",
             data={"reason": reason, "exit_code": runtime.exit_code},
         )
+        session.commit()
+        self._revoke_model_key(session, runtime.id)
 
     def stop_dead(self, session: Session, world: World) -> int:
         agents = session.scalars(
@@ -525,6 +550,8 @@ class RuntimeManager:
                 Agent.world_id == world.id,
                 (Agent.alive.is_(False)) | (Agent.death_at <= utcnow()),
                 AgentRuntime.status.in_([RUNNING, SUSPENDED, CRASHED, LOST]),
+                or_(AgentRuntime.owner_host.is_(None),
+                    AgentRuntime.owner_host == self.settings.runtime_host_id),
             )
         ).all()
         stopped = 0
@@ -542,6 +569,8 @@ class RuntimeManager:
         runtime = self.get_runtime(session, world, agent)
         if runtime is None:
             raise service.DomainError("runtime not found", 404)
+        if runtime.owner_host not in {None, self.settings.runtime_host_id}:
+            return runtime
         if not service.refresh_alive(session, agent, world) and runtime.status != STOPPED:
             return self._stop(
                 session, world, agent, status=STOPPED, event_type="runtime.agent_died"
@@ -558,6 +587,8 @@ class RuntimeManager:
             select(AgentRuntime).where(
                 AgentRuntime.world_id == world.id,
                 AgentRuntime.status == RUNNING,
+                or_(AgentRuntime.owner_host.is_(None),
+                    AgentRuntime.owner_host == self.settings.runtime_host_id),
             )
         ).all()
         for runtime in runtimes:
@@ -587,6 +618,8 @@ class RuntimeManager:
                 AgentRuntime.next_restart_at.is_not(None),
                 AgentRuntime.next_restart_at <= now,
                 AgentRuntime.restart_count < AgentRuntime.max_restarts,
+                or_(AgentRuntime.owner_host.is_(None),
+                    AgentRuntime.owner_host == self.settings.runtime_host_id),
             )
         ).all()
         restarted = 0
@@ -621,7 +654,11 @@ class RuntimeManager:
             for world in session.scalars(select(World)).all():
                 changed += self.stop_dead(session, world)
             runtimes = session.scalars(
-                select(AgentRuntime).where(AgentRuntime.status == RUNNING)
+                select(AgentRuntime).where(
+                    AgentRuntime.status == RUNNING,
+                    or_(AgentRuntime.owner_host.is_(None),
+                        AgentRuntime.owner_host == self.settings.runtime_host_id),
+                )
             ).all()
             for runtime in runtimes:
                 try:
@@ -647,6 +684,7 @@ class RuntimeManager:
             "world_id": runtime.world_id,
             "agent_id": runtime.agent_id,
             "adapter": runtime.adapter,
+            "owner_host": runtime.owner_host,
             "status": runtime.status,
             "restart_policy": runtime.restart_policy,
             "max_restarts": runtime.max_restarts,

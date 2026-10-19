@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Tsinghua City - Experiments</title>
+<style>
+:root{--bg:#181818;--panel:#1f1f1f;--line:#333;--text:#d4d4d4;--dim:#999;--accent:#d97757;--ok:#7bc96f;--bad:#e06c75;--mono:'SF Mono',ui-monospace,'Cascadia Code',Menlo,Consolas,monospace}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:13px/1.6 var(--mono)}header{display:flex;gap:18px;align-items:center;padding:18px 24px;border-bottom:1px solid var(--line)}header h1{font-size:16px;margin:0;color:var(--accent)}a{color:var(--accent)}main{display:grid;grid-template-columns:minmax(280px,380px) minmax(0,1fr);gap:18px;padding:22px;max-width:1500px;margin:auto}main>*{min-width:0}section{min-width:0;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:18px}h2{font-size:14px;margin:0 0 12px}p,label{color:var(--dim)}label{display:block;margin:12px 0 5px}input,textarea,button{font:inherit;background:var(--bg);color:var(--text);border:1px solid var(--line);border-radius:4px;padding:8px}input,textarea{width:100%}textarea{min-height:390px;resize:vertical;tab-size:2}button{cursor:pointer}button:hover{border-color:var(--accent)}button:disabled{opacity:.45;cursor:wait}.actions{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0}.primary{background:var(--accent);color:#181818}#error{color:var(--bad);white-space:pre-wrap;overflow-wrap:anywhere}#notice{color:var(--ok)}.scroll{overflow:auto}table{width:100%;border-collapse:collapse;white-space:nowrap}th,td{text-align:left;border-bottom:1px solid var(--line);padding:9px}th{color:var(--dim);font-weight:normal}.status{color:var(--accent)}pre{white-space:pre-wrap;overflow-wrap:anywhere}#details{margin-top:18px}small{color:var(--dim)}td input{width:auto}.tabs{margin-left:auto;display:flex;gap:16px}@media(max-width:800px){main{grid-template-columns:1fr;padding:12px}header{flex-wrap:wrap;padding:14px}.tabs{margin-left:0}textarea{min-height:260px}}@media(prefers-reduced-motion:no-preference){main{animation:appear .25s ease-out}@keyframes appear{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}}
+</style>
+<header><h1>tsinghua city / experiments</h1><span class="tabs"><a href="/canvas">Canvas</a><a href="/traces">Traces</a></span></header>
+<main>
+<section>
+<h2>Experiment conditions</h2>
+<label for="token">Access token</label><input type="password" id="token" autocomplete="off" placeholder="Admin, operator, or viewer token">
+<small>Viewer tokens can inspect results; launch requires operator access.</small>
+<label for="manifest">Manifest</label><textarea id="manifest" spellcheck="false" aria-label="Experiment manifest"></textarea>
+<label for="repeat">Independent trials</label><input type="number" id="repeat" min="1" max="100" value="1">
+<div class="actions"><button id="launch" class="primary">Queue experiment</button><button id="refresh">Refresh</button></div>
+<p>Each trial creates new identities and its own world; stopped agents are never awakened by messages.</p>
+<p id="notice" role="status"></p><p id="error" role="alert"></p>
+</section>
+<div>
+<section><h2>Run history</h2><small id="summary">Connect to inspect experiments.</small>
+<div class="actions"><button id="compare">Compare selected</button><button id="previous">Previous</button><button id="next">Next</button></div>
+<div class="scroll"><table><thead><tr><th>Select</th><th>Experiment</th><th>Status</th><th>Created</th><th>Actions</th></tr></thead><tbody id="runs"></tbody></table></div></section>
+<section id="details"><h2>Results</h2><div id="result"><p>Select a run to inspect its conditions and metrics.</p></div></section>
+</div>
+</main>
+<script>
+const $=id=>document.getElementById(id);let offset=0;let rows=[];const selected=new Set();
+const template={version:1,name:'cooperation',agents:['alice','bob'].map(name=>({name,model:'YOUR_CLAUDE_COMPATIBLE_MODEL',prompt:'Inspect your world and act independently through its tools.',limits:{max_budget_usd:0.5,max_turns:10,max_rounds:3,run_timeout:180,turn_timeout:60,listen_seconds:15,poll_interval:1}}))};
+$('manifest').value=JSON.stringify(template,null,2);
+$('token').value=sessionStorage.getItem('city_experiment_token')||'';
+function esc(x){return String(x??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+async function api(path,options={}){const response=await fetch(path,{...options,headers:{'Authorization':'Bearer '+$('token').value.trim(),'Content-Type':'application/json',...options.headers}});if(!response.ok){const data=await response.json().catch(()=>({detail:response.statusText}));throw new Error(JSON.stringify(data.detail));}return response;}
+async function action(fn){$('error').textContent='';try{await fn();}catch(error){$('error').textContent=error.message;}}
+async function refresh(){sessionStorage.setItem('city_experiment_token',$('token').value.trim());rows=await(await api('/v1/experiments?limit=20&offset='+offset)).json();$('runs').innerHTML=rows.map(row=>'<tr><td><input type="checkbox" aria-label="Select '+esc(row.name)+'" data-select="'+esc(row.id)+'" '+(selected.has(row.id)?'checked':'')+'></td><td><button data-open="'+esc(row.id)+'">'+esc(row.name)+'</button><br><small>'+esc(row.id)+'</small></td><td class="status">'+esc(row.status)+'</td><td>'+esc(row.created_at)+'</td><td><button data-stop="'+esc(row.id)+'" '+(['COMPLETED','STOPPED','FAILED'].includes(row.status)?'disabled':'')+'>Stop</button></td></tr>').join('');$('summary').textContent='Showing '+rows.length+' runs, offset '+offset+'; '+selected.size+' selected.';$('previous').disabled=offset===0;$('next').disabled=rows.length<20;}
+function metricsTable(items){const keys=[...new Set(items.flatMap(item=>Object.keys(item.metrics)))];return '<div class="scroll"><table><thead><tr><th>Measurement</th>'+items.map(item=>'<th>'+esc(item.name||item.run.name)+'<br><small>'+esc(item.id||item.run.id)+'</small></th>').join('')+'</tr></thead><tbody>'+keys.map(key=>'<tr><td>'+esc(key)+'</td>'+items.map(item=>'<td>'+esc(item.metrics[key]===null?'not reported':typeof item.metrics[key]==='object'?JSON.stringify(item.metrics[key]):item.metrics[key])+'</td>').join('')+'</tr>').join('')+'</tbody></table></div>';}
+async function inspect(id){const row=await(await api('/v1/experiments/'+id)).json();$('result').innerHTML='<div class="actions"><button data-download="'+esc(id)+'" data-format="json">Export JSON</button><button data-download="'+esc(id)+'" data-format="csv">Export CSV</button><a href="/traces?experiment_id='+encodeURIComponent(id)+'">Traces</a></div>'+metricsTable([row])+'<h3>Conditions and provenance</h3><pre>'+esc(JSON.stringify({manifest:row.manifest,provenance:row.provenance,error:row.error},null,2))+'</pre>';}
+$('refresh').onclick=()=>action(refresh);
+$('launch').onclick=()=>action(async()=>{$('launch').disabled=true;try{const body={manifest:JSON.parse($('manifest').value),repeat:Number($('repeat').value)};if(body.manifest.agents.some(agent=>agent.model==='YOUR_CLAUDE_COMPATIBLE_MODEL'))throw new Error('Select a real model before launching.');const created=await(await api('/v1/experiments',{method:'POST',body:JSON.stringify(body)})).json();$('notice').textContent='Queued '+created.length+' independent trial(s).';offset=0;await refresh();}finally{$('launch').disabled=false;}});
+$('previous').onclick=()=>action(async()=>{offset=Math.max(0,offset-20);await refresh();});$('next').onclick=()=>action(async()=>{offset+=20;await refresh();});
+$('compare').onclick=()=>action(async()=>{if(!selected.size)throw new Error('Select runs to compare.');const items=await(await api('/v1/experiments/compare?ids='+encodeURIComponent([...selected].join(',')))).json();$('result').innerHTML=metricsTable(items);});
+document.addEventListener('change',event=>{const id=event.target.dataset.select;if(id){event.target.checked?selected.add(id):selected.delete(id);$('summary').textContent=selected.size+' selected.';}});
+document.addEventListener('click',event=>action(async()=>{const data=event.target.dataset;if(data.open)await inspect(data.open);if(data.stop){await api('/v1/experiments/'+data.stop+'/stop',{method:'POST'});await refresh();}if(data.download){const response=await api('/v1/experiments/'+data.download+'/export?format='+data.format);const url=URL.createObjectURL(await response.blob());const link=document.createElement('a');link.href=url;link.download=data.download+'.'+data.format;link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}}));
+if($('token').value)action(refresh);
+</script>
+</html>

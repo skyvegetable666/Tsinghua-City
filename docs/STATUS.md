@@ -1,132 +1,78 @@
-# Status — alpha checkpoint
+# Status - experiment operations checkpoint
 
-- **As of:** 2026-10-19
-- **Base checkpoint:** `36c3f48`
-- **Integrated upstream base:** `4824d6b`
-- **Stage:** Docker sandbox / live Claude Code verified
-- **Design baseline:** [../Design.md](../Design.md)
+- Date: 2026-10-19
+- Base: `ffc7d2437ae0794f97e6c39fc7fdbd3efdca306a`
+- Local branch: `feat/experiment-operations-local`
+- Review target: [PR #2](https://github.com/wangslzzz/Tsinghua-City/pull/2)
+- Local agent image: `tsinghua-city-agent:operations-local` (select via `CITY_DOCKER_IMAGE`)
+- Local API image: `tsinghua-city-api:operations-local`
+- Packaged working-source SHA-256: `9493623346bd552a4c3e3891a3aea794507b50f26a2bd76b0eae57bfcdb82f98`
 
-## Summary
+## Verified
 
-Tsinghua City has an authoritative world-state service, MCP capabilities, a task
-market with escrow, a public board, and interchangeable local/Docker runtimes.
-The Docker sandbox packages the official Claude Code CLI and has completed real
-Docker integration tests for isolation, workspace persistence, restart, and the
-deterministic two-agent MCP task cycle. A live Claude Code run in the Docker
-sandbox also called the MCP `check_state` tool and returned the expected marker
-with exit code 0. This remains a single-machine research alpha.
+| Check | Result |
+| --- | --- |
+| Full PostgreSQL + real Docker suite | 107 passed, zero skipped |
+| Default SQLite suite | 94 passed, 13 optional checks skipped |
+| Real Docker subset | 8 passed, including internal bridge and enforced tmpfs capacity |
+| SQLite / PostgreSQL migrations | upgrade, downgrade, upgrade; existing world retained |
+| Stale agent image | rejected before execution with a rebuild instruction |
+| Real Claude multi-round run | 2 successful user turns, 2 real MCP tool results |
+| Peer continuation | both expected markers, message acknowledged after success |
+| Completed runtime | STOPPED, exit 0, extra stop returned HTTP 200 |
+| Reported cumulative Claude costs | USD 0.040372 then 0.055494; provider-reported estimates |
+| PostgreSQL dump/restore | all 18 tables' row counts matched; 3 ledger transactions; balance sum 0 |
+| API and agent images | both built locally; API image includes working Docker CLI and migrations |
+| Nginx | syntax valid; certificate-verified local HTTPS; unauthenticated 401 / authenticated 200 |
+| Nginx admission | 100-request burst returned 29 x HTTP 200 and 71 x HTTP 429 |
+| Compose | base and gateway override parse; default/custom volume options round-trip |
+| Experiment UI | queue, history, comparison, details; no root overflow at 375 or 1280 px |
+| Ruff / repository hygiene / whitespace | passed |
+
+Pytest emits one upstream Starlette/httpx deprecation warning. It does not skip
+or fail any test in the combined run. The real-model smoke uses the configured
+Anthropic-compatible provider directly, with the native CLI budget limit.
 
 ## Implemented
 
-| Area | State |
-| --- | --- |
-| World / agent identity | done |
-| Credits + double-entry ledger | done |
-| Life deadline + extension | done |
-| Direct messages + inbox | done |
-| Operator channel | durable operator/agent messages; admin + MCP |
-| Task board + escrow | core done |
-| External/admin tasks | core done, funded by system account |
-| Public bulletin board | done |
-| Idempotency | transfers, life, messages, task publication |
-| MCP | world, task, board tools; real stdio test |
-| Alembic | 0001 through 0006 |
-| Maintenance scheduler | deadlines, terminal death, crash detection, restart |
-| Local runtime manager | start/stop/suspend/resume/terminate/reconcile |
-| Docker sandbox | non-root, private per-agent and shared per-world workspaces, isolated networks, read-only root, resource limits; image smoke verified |
-| Image smoke | Docker Desktop Windows: non-root 1000, writable /work and /shared, flock, Claude Code 2.1.296, Python import |
-| Docker integration | 7 real tests on macOS Docker Desktop: isolation, token rotation, persistence, recovery, terminal death, bounded turns, MCP task/life cycle |
-| Live model | verified 2026-10-19: Claude Code 2.1.296, real model call, MCP check_state tool result, exit 0; credentials are supplied through env only |
-| Claude Code harness | official CLI, existing MCP, bounded turns, native session resume |
-| Run launch | admin Claude start/stop endpoint and Canvas controls |
-| Doctor | database, directories, Docker daemon/image, Claude CLI/credentials; portable missing-Docker diagnostics |
-| Sandbox transcripts | stdout/stderr export per launch, paths in lifecycle events |
-| Runtime recovery | process-loss mark, on-failure restart, terminate crashed |
-| Reference harness | deterministic MCP policy + two-agent demo + JSONL journals |
-| Claude harness | Claude Code CLI stream-json port + JSONL trace; fake-CLI tested |
-| Canvas | early admin monitor at /canvas: worlds/agents/runtimes/tasks/posts/events |
-| Traces | read-only /traces viewer over host JSONL run traces |
-| Docker trace ingestion | structured stdout exported to host JSONL; world/agent/run filters |
-| Experiment launch | version-1 manifest, batch start/stop, condition archive, failed-launch cleanup |
-| Bounded continuation | inbox delivery between user turns; CLI cost/turn limits and wall-time limit |
-| Run manifests | secret-free reproducibility records per runtime start |
-| Token rotation | runtime start/resume/auto-restart; old tokens invalidated |
-| Runtime MCP config | generated per process; removed on stop |
-| Windows proxy handling | loopback clients bypass WinINET |
-| Postgres concurrency | FOR UPDATE + populate_existing fix |
+- Durable experiment queue, independent repeats, stop retries, interrupted-launch
+  cleanup without replaying prompts, persisted runtime identities before Docker.
+- Host ownership with FileLock or PostgreSQL advisory locks, conditional launch
+  claiming, startup/API lifecycle coordination, cross-host mutation rejection.
+- Frozen terminal measurements, comparison, provenance, JSON/CSV event exports,
+  authenticated Prometheus metrics and experiment UI.
+- Bounded employer funding and escrow/refunds; member-only group conversations
+  through HTTP and the existing MCP server.
+- Viewer/operator/admin permissions; Docker secrets for control-plane tokens.
+- Optional LiteLLM virtual keys with model restriction, budget, TTL, hashed storage,
+  revocation and cleanup retry; no custom gateway or model loop.
+- Docker internal-network, explicit proxy and volume-driver options; fail-closed
+  admission for required bounded tmpfs workspaces.
+- Explicit archive-retention preview/apply; native consistent SQLite backup/restore;
+  standard PostgreSQL and Docker volume recovery instructions.
+- Linux PostgreSQL/Nginx TLS deployment reference, optional gateway override,
+  Prometheus profile, and CI building the checked-out agent source before tests.
 
-## Verification
+The four review fixes are included: all-agent stop attempts with an archived
+partial result, idempotent completed-runtime stop, exact packaged-source image
+checks, and explicit documentation that operator messages require MCP reads.
 
-Local checkpoint with real Docker integration enabled:
+## Acceptance limits
 
-~~~text
-81 passed, 2 skipped
-~~~
+The LiteLLM key API contract is tested with a mock; an actual gateway deployment,
+its translation and pricing need external acceptance. Native CLI and gateway
+budgets can overshoot and are not provider-account billing ceilings. The reported
+Claude cost is cumulative; do not sum both turn totals as separate charges.
 
-The skipped tests are Postgres-only concurrency checks. The two-agent reference
-demo was also run manually and completed four tasks across alice/bob.
+The Nginx component was exercised with copied test configuration/certificates.
+Docker Desktop bind-mount startup stalled, so the complete Linux Compose topology,
+real certificates, firewall/egress ACLs and off-host backup process remain target-
+host acceptance work. Persistent disk quota drivers are not certified here;
+ordinary volumes remain unbounded, while the tested bounded tmpfs option is volatile.
 
-The missing-Docker diagnostic is regression-tested for macOS, Windows, and WSL
-kernel releases. It uses Python's portable platform API instead of `/proc/version`.
+There is no automatic host failover, automatic wake/rebirth, mandatory notes,
+memory injection, or automatic deletion of historical SQL records/workspaces.
+Messages to operator channels and groups require explicit MCP reads.
 
-Real model validation on macOS Docker Desktop: Claude Code 2.1.296 with an
-Anthropic-compatible GLM 5.2 provider completed four invocations and 16 tool
-calls. Alice published a reward-7 task; Bob wrote an artifact and submitted it;
-Alice accepted and paid it. Both spent one credit to add 60 seconds of life.
-Balances were 50 -> 42 (Alice) and 50 -> 56 (Bob). Both conversations resumed
-their original Claude session IDs; Bob read the artifact after container
-recreation. Disposable containers, networks, and workspaces were cleaned up.
-
-The Docker tests also verify cross-agent filesystem/network separation,
-capability and root restrictions, token rotation, durable workspace recovery,
-crash restart, failed-start rollback, stderr retention, and foreign-resource
-ownership protection. See [SANDBOX.md](SANDBOX.md) for reproduction.
-
-Windows tester, at commit `17af044`:
-
-- system proxy scenario: fixed, MCP test passes without `NO_PROXY`
-- Postgres concurrency: 28 passed; double-spend test 5/5
-- runtime manual 9-step lifecycle: pass
-- new migration and board/task tests: pass
-
-**Delta tester-verified at `9e4c066`:** Windows 29/2; Postgres 31/31.
-
-A token-rotation regression assertion was added after the report: auto-restart
-writes a new MCP config token and invalidates the previous one. It passes
-locally.
-
-**Post-9e4c066 additions:** deterministic reference MCP harness, two-agent demo,
-MCP list-content decoding tests, an early Canvas, and a Claude Code harness
-port with fake-CLI tests. These are local-verified but not yet tester-verified.
-The pre-sandbox Postgres expectation was `39 passed`.
-
-## Known gaps
-
-- Local adapter remains a host process; use the Docker adapter for isolation.
-- Docker has outbound network access and a host API gateway, not an egress allowlist.
-- No safe-point injection into an active model call.
-- No durable multi-worker runtime leases or ownership.
-- Exit code 0 becomes STOPPED; an unknown exit from a local process launched by
-  another manager remains CRASHED because its exit code cannot be recovered.
-- Canvas is an early admin monitor, not the final experiment UI/run comparison.
-- Named external-employer accounts/budgets are not implemented.
-- In-process scheduler is single-worker and not durable.
-- No production auth, TLS, rate limiting, backup, or deployment hardening.
-
-## Good next checkpoint
-
-The first real-agent sandbox/task-cycle slice is verified. The next checkpoint
-can add cross-experiment metrics and comparison. Docker transcript inspection,
-versioned launch manifests, and native CLI spending limits are now connected.
-
-The lifecycle regression suite verifies successful completion without automatic
-restart, terminal-death cleanup and Docker-unavailable retry, and safe message
-delivery/acknowledgement across model turns. The continuation tests use a fake
-CLI both on the host and in real Docker; this change does not add another paid
-model experiment. CLI spending limits rely on provider-reported pricing and are
-not provider-account billing caps. See [EXPERIMENTS.md](EXPERIMENTS.md).
-
-See [FIRST_PRODUCT.md](FIRST_PRODUCT.md) for the reuse map and exact P0 order.
-
-The current system supports both the deterministic contract demo and real
-Claude Code agents inside Docker through the same world API/MCP boundaries.
+See [OPERATIONS.md](OPERATIONS.md), [EXPERIMENTS.md](EXPERIMENTS.md), and
+[TESTING.md](TESTING.md) for the implemented contracts and reproducible commands.

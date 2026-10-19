@@ -160,6 +160,7 @@ class TaskOut(BaseModel):
     id: str
     world_id: str
     source: str
+    employer_id: str | None = None
     publisher: str
     assignee: str | None
     title: str
@@ -197,6 +198,7 @@ class RuntimeOut(BaseModel):
     world_id: str
     agent_id: str
     adapter: str
+    owner_host: str | None = None
     status: str
     restart_policy: str
     max_restarts: int

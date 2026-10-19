@@ -1,7 +1,8 @@
 # Docker Sandbox and Claude Code
 
 The sandbox adds `adapter: "docker"` to the existing admin runtime API. The local
-adapter remains the default. There is no API or database migration. An existing
+adapter remains the default. Experiment operations add migration
+`0007_experiment_operations`; run `tsinghua-city upgrade`. An existing
 agent can switch adapters after its runtime has been explicitly stopped.
 
 ## Components, top to bottom
@@ -161,3 +162,8 @@ credential rotation, volume persistence, manager recovery, crash restart,
 failure rollback, MCP task settlement, and credit-to-life extension. It deletes
 only its own disposable containers, networks, and volumes. These deterministic
 checks establish the infrastructure path separately from a paid model run.
+The suite verifies the exact packaged source hash inside its image before any
+test runs; rebuild after changes to packaged source, README, or pyproject.toml.
+CI explicitly builds the checked-out source before running these checks.
+Optional network/storage and LiteLLM policies are documented in
+[OPERATIONS.md](OPERATIONS.md), including their enforcement limits.

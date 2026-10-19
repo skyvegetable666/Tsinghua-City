@@ -11,6 +11,7 @@ import subprocess
 from pathlib import Path
 
 from sqlalchemy import select
+from sqlalchemy.engine import make_url
 
 from . import service
 from .config import load_settings
@@ -30,7 +31,7 @@ def _database():
 
 def cmd_init(_args: argparse.Namespace) -> int:
     settings, _engine, _factory = _database()
-    print(f"database: {settings.database_url}")
+    print(f"database: {make_url(settings.database_url).render_as_string(hide_password=True)}")
     if settings.uses_default_admin_token:
         print("admin token: dev-admin-token (set CITY_ADMIN_TOKEN for a real run)")
     else:
@@ -57,7 +58,7 @@ def cmd_serve(args: argparse.Namespace) -> int:
 def cmd_upgrade(_args: argparse.Namespace) -> int:
     settings = load_settings()
     upgrade_database(settings.database_url)
-    print(f"database upgraded: {settings.database_url}")
+    print(f"database upgraded: {make_url(settings.database_url).render_as_string(hide_password=True)}")
     return 0
 
 
@@ -123,7 +124,7 @@ def cmd_mcp(_args: argparse.Namespace) -> int:
 def cmd_experiment(args: argparse.Namespace) -> int:
     import httpx
 
-    from .experiments import ExperimentManifest, launch_experiment, stop_experiment
+    from .experiments import ExperimentManifest, _archive, launch_experiment, stop_experiment
 
     settings = load_settings()
     path = Path(args.path)
@@ -141,9 +142,9 @@ def cmd_experiment(args: argparse.Namespace) -> int:
         else:
             report = json.loads(path.read_text(encoding="utf-8"))
             result = stop_experiment(report, client, headers=headers)
-            path.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
+            _archive(path, result)
         print(json.dumps(result, indent=2))
-    return 0
+    return 1 if result.get("status") == "cleanup_pending" else 0
 
 
 def cmd_doctor(args: argparse.Namespace) -> int:
@@ -156,9 +157,9 @@ def cmd_doctor(args: argparse.Namespace) -> int:
 
     try:
         upgrade_database(settings.database_url)
-        add("database", "ok", settings.database_url)
+        add("database", "ok", make_url(settings.database_url).render_as_string(hide_password=True))
     except Exception as exc:  # doctor reports setup failures
-        add("database", "fail", f"{type(exc).__name__}: {exc}")
+        add("database", "fail", f"{type(exc).__name__}: database migration failed; check private configuration")
 
     for label, raw in (
         ("runtime logs", settings.runtime_log_dir),
@@ -238,6 +239,32 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     return 1 if any(check["status"] == "fail" for check in checks) else 0
 
 
+def cmd_archives(args):
+    from .archives import copy_sqlite, prune
+    from .db import _sqlite_path
+    from .maintenance import host_lock
+
+    if args.command == "restore-sqlite":
+        result = copy_sqlite(Path(args.source), Path(args.destination))
+    elif args.command == "backup-sqlite":
+        source = _sqlite_path(load_settings().database_url)
+        if not source or source == ":memory:":
+            raise SystemExit("backup-sqlite requires a file database; use pg_dump for PostgreSQL")
+        result = copy_sqlite(Path(source), Path(args.destination))
+    else:
+        settings, engine, factory = _database()
+        try:
+            with host_lock(factory, settings) as locked:
+                if not locked:
+                    raise SystemExit("host maintenance busy; retry")
+                with factory() as session:
+                    result = prune(session, settings, days=args.days, apply=args.apply)
+        finally:
+            engine.dispose()
+    print(json.dumps(result, indent=2))
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="tsinghua-city")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -281,6 +308,17 @@ def build_parser() -> argparse.ArgumentParser:
     doctor = sub.add_parser("doctor", help="check host prerequisites for real runs")
     doctor.add_argument("--json", action="store_true")
     doctor.set_defaults(func=cmd_doctor)
+    prune = sub.add_parser("prune-archives", help="preview expired terminal-run artifacts")
+    prune.add_argument("--days", type=int)
+    prune.add_argument("--apply", action="store_true")
+    prune.set_defaults(func=cmd_archives)
+    backup = sub.add_parser("backup-sqlite", help="create a native consistent database snapshot")
+    backup.add_argument("destination")
+    backup.set_defaults(func=cmd_archives)
+    restore = sub.add_parser("restore-sqlite", help="restore into a new, non-existing database file")
+    restore.add_argument("source")
+    restore.add_argument("destination")
+    restore.set_defaults(func=cmd_archives)
     return parser
 
 

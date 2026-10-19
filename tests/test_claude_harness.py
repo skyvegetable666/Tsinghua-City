@@ -36,6 +36,7 @@ async def test_harness_with_fake_cli(tmp_path):
     await harness.send_initial("hello")
     await harness.wait_ready(timeout=5)
     await harness.wait_for_turn(timeout=5)
+    assert harness.last_result["cost_usd"] is None
     assert {event["type"] for event in events} >= {
         "session_initialized",
         "turn_started",

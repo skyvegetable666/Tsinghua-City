@@ -13,11 +13,12 @@ inside Docker, including payment, life extension, and session resume.
 - Architecture decisions: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 - First product and reuse map: [docs/FIRST_PRODUCT.md](docs/FIRST_PRODUCT.md)
 - Bounded experiments: [docs/EXPERIMENTS.md](docs/EXPERIMENTS.md)
+- Operations, policies and recovery: [docs/OPERATIONS.md](docs/OPERATIONS.md)
 - Milestone history: [docs/CHANGELOG.md](docs/CHANGELOG.md)
 - Third-party notices: [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)
 
 - **Integrated upstream base:** `4824d6b`
-- **With real Docker tests:** `81 passed, 2 skipped`
+- **Earlier sandbox baseline:** `81 passed, 2 skipped`; see current validation in [docs/STATUS.md](docs/STATUS.md)
 - **Old prototype:** frozen under `archive/genesis-lab/` (zero runtime imports)
 
 ---
@@ -40,8 +41,10 @@ inside Docker, including payment, life extension, and session resume.
 - idempotent direct messages
 - agent-published tasks with reward escrow
 - external/admin-published tasks
+- named employers with bounded funding, escrow, settlement and refunds
 - claim, submit, accept, reject/reopen, cancel/refund, expiry
 - task publication idempotency
+- member-only group conversations with retry-safe sends
 - public bulletin board with posts and replies
 
 ### Runtime
@@ -64,15 +67,22 @@ inside Docker, including payment, life extension, and session resume.
 - `scripts/docker_image_smoke.sh` image build and sandbox smoke
 - `scripts/live_claude_smoke.py` opt-in real Docker + Claude + MCP smoke
 - secret-free runtime manifests under `runs/manifests`
+- durable host-owned experiment queue, independent repeats and interrupted-launch cleanup
+- experiment UI at `/experiments`, frozen measurements, comparison and JSON/CSV exports
+- viewer/operator/admin roles and authenticated Prometheus metrics
+- optional LiteLLM virtual-key budgets and Docker network/storage policies
+- archive retention preview and consistent SQLite backup/restore
+- Linux PostgreSQL/Nginx TLS deployment reference and source-verified CI images
 
 ### Interfaces
 
 - FastAPI admin + agent API
 - MCP server for world capabilities
 - CLI: `init`, `upgrade`, `serve`, `tick`, `create-world`, `create-agent`, `mcp`,
-  `doctor`, `run-experiment`, `stop-experiment`
+  `doctor`, `run-experiment`, `stop-experiment`, `prune-archives`,
+  `backup-sqlite`, `restore-sqlite`
 - `tsinghua-city-agent` Claude Code harness entrypoint
-- Alembic migrations through `0006_operator_messages`
+- Alembic migrations through `0007_experiment_operations`
 
 ---
 
@@ -80,13 +90,12 @@ inside Docker, including payment, life extension, and session resume.
 
 - **single-node sandbox**: Docker boundary checks pass; the host gateway and internet egress remain available
 - **no safe-point injection into an active model call**
-- **no durable multi-worker runtime leases**
-- **Canvas is an early admin monitor**, not the final experiment UI
+- **host ownership has no automatic failover**; host IDs must remain stable
+- **Canvas is an early admin monitor**; experiment operations use `/experiments`
 - **the deterministic reference harness is still not a model**
-- **versioned experiment manifests and bounded Docker launch are available**;
-  cross-run metrics and comparison are still pending
-- **no named external-employer budgets**
-- **no memory system**
+- **strict provider billing caps, production firewall policy and durable disk
+  quotas require deployment-specific validation**; see [docs/OPERATIONS.md](docs/OPERATIONS.md)
+- **no mandatory memory or automatic wake/rebirth behavior**
 
 Do not run untrusted agents with the local adapter.
 

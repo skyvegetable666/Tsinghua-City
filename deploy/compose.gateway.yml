@@ -1,0 +1,12 @@
+# Connect the API to an existing, independently configured LiteLLM Proxy.
+services:
+  api:
+    environment:
+      CITY_MODEL_GATEWAY_URL: ${CITY_MODEL_GATEWAY_URL:-http://127.0.0.1:4000}
+      CITY_MODEL_GATEWAY_AGENT_URL: ${CITY_MODEL_GATEWAY_AGENT_URL:-http://host.docker.internal:4000}
+      CITY_MODEL_GATEWAY_ADMIN_KEY_FILE: /run/secrets/gateway_admin_key
+      CITY_REQUIRE_GATEWAY_BUDGET: '1'
+    secrets: [gateway_admin_key]
+secrets:
+  gateway_admin_key:
+    file: ./secrets/gateway_admin_key

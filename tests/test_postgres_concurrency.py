@@ -104,3 +104,58 @@ def test_concurrent_same_idempotency_key_is_single_transfer(client, admin_header
                 LedgerTransaction.kind == "transfer"
             )
         ) == 1
+
+
+def test_employer_concurrent_escrow_never_overdraws(client, admin_headers, session_factory):
+    from tsinghua_city import communities
+
+    world = create_world(client, admin_headers)
+    base = f"/v1/worlds/{world['id']}/employers"
+    employer = client.post(base, headers=admin_headers, json={"name": "lab", "budget": 20}).json()
+    barrier = threading.Barrier(2)
+
+    def publish(index):
+        with session_factory() as session:
+            model = session.get(World, world["id"])
+            barrier.wait()
+            try:
+                communities.publish_employer_task(session, model, employer["id"], {
+                    "title": "work", "description": "work", "acceptance_criteria": "done",
+                    "reward": 15, "deadline_seconds": None, "client_task_id": str(index),
+                })
+                return "ok"
+            except service.DomainError as exc:
+                session.rollback()
+                return str(exc.status)
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(publish, range(2)))
+    assert sorted(results) == ["409", "ok"]
+    assert client.get(base, headers=admin_headers).json()[0]["balance"] == 5
+
+
+def test_experiment_compare_and_set_launch_claim(client, admin_headers, session_factory, monkeypatch):
+    from test_docker_runtime import FakeDocker
+
+    from tsinghua_city import experiment_registry as registry
+    from tsinghua_city.models import ExperimentRun
+
+    monkeypatch.setattr(registry, "provenance", lambda _settings: {})
+    row = client.post("/v1/experiments", headers=admin_headers, json={"manifest": {
+        "name": "claim", "agents": [{"name": "alice", "model": "test", "prompt": "test"}],
+    }}).json()[0]
+    manager = client.app.state.runtime_manager
+    adapter = FakeDocker()
+    manager._adapters["docker"] = adapter
+    barrier = threading.Barrier(2)
+
+    def launch(_):
+        with session_factory() as session:
+            stored = session.get(ExperimentRun, row["id"])
+            barrier.wait()
+            registry._launch(session, manager, stored)
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        list(pool.map(launch, range(2)))
+    assert adapter.starts == 1
+    assert client.get("/v1/experiments/" + row["id"], headers=admin_headers).json()["status"] == "RUNNING"

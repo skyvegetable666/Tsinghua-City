@@ -79,3 +79,63 @@ def test_experiment_rejects_duplicate_agents_and_secret_fields():
     data["api_key"] = "must-be-environment-only"
     with pytest.raises(ValidationError):
         ExperimentManifest.model_validate(data)
+
+
+def test_second_stop_failure_still_stops_third_and_can_retry(client, admin_headers, tmp_path):
+    from tsinghua_city.service import DomainError
+
+    class FailsSecondStop(FakeDocker):
+        def __init__(self):
+            super().__init__()
+            self.attempts = []
+            self.fail = True
+
+        def stop(self, runtime):
+            self.attempts.append(runtime.agent_id)
+            if len(self.attempts) == 2 and self.fail:
+                raise DomainError("private-provider-credential", 503)
+            return super().stop(runtime)
+
+    adapter = FailsSecondStop()
+    client.app.state.runtime_manager._adapters["docker"] = adapter
+    data = manifest().model_dump()
+    data["agents"].append({**data["agents"][0], "name": "carol"})
+    launched = launch_experiment(ExperimentManifest.model_validate(data), client,
+                                 headers=admin_headers, archive_dir=tmp_path)
+    partial = stop_experiment(launched, client, headers=admin_headers)
+    assert partial["status"] == "cleanup_pending"
+    assert adapter.attempts == [agent["id"] for agent in launched["agents"]]
+    assert [agent["cleanup_pending"] for agent in partial["agents"]] == [False, True, False]
+    assert "private-provider-credential" not in json.dumps(partial)
+    adapter.fail = False
+    retried = stop_experiment(partial, client, headers=admin_headers)
+    assert retried["status"] == "stopped"
+    assert len(adapter.attempts) == 4
+    assert all(not agent["cleanup_pending"] for agent in retried["agents"])
+    assert all("stop_error" not in agent for agent in retried["agents"])
+
+
+def test_stop_cli_persists_partial_report_and_returns_failure(monkeypatch, tmp_path, capsys):
+    from tsinghua_city.cli import main
+
+    path = tmp_path / "run.json"
+    path.write_text(json.dumps({"world_id": "world", "agents": [{"id": x} for x in "abc"]}))
+    attempts = []
+
+    def respond(request):
+        if request.method == "GET":
+            return httpx.Response(200, json={"status": "RUNNING"})
+        agent_id = request.url.path.split("/")[5]
+        attempts.append(agent_id)
+        return httpx.Response(503 if agent_id == "b" else 200, json={})
+
+    original = httpx.Client
+    monkeypatch.setattr(httpx, "Client", lambda **kw: original(
+        **kw, transport=httpx.MockTransport(respond),
+    ))
+    assert main(["stop-experiment", str(path)]) == 1
+    result = json.loads(path.read_text())
+    assert attempts == list("abc")
+    assert result["status"] == "cleanup_pending"
+    assert [a["cleanup_pending"] for a in result["agents"]] == [False, True, False]
+    assert json.loads(capsys.readouterr().out)["status"] == "cleanup_pending"

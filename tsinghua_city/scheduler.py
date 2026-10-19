@@ -19,6 +19,22 @@ logger = logging.getLogger(__name__)
 
 
 def tick_once(session_factory, runtime_manager=None) -> dict[str, int]:
+    if runtime_manager is None:
+        return _tick_once(session_factory)
+    from .experiment_registry import process_runs
+    from .maintenance import host_lock
+    from .model_budget import cleanup
+
+    with host_lock(session_factory, runtime_manager.settings) as locked:
+        if not locked:
+            return {"maintenance_busy": 1}
+        result = _tick_once(session_factory, runtime_manager)
+        result["model_key_cleanup_pending"] = cleanup(session_factory, runtime_manager.settings)
+        result["experiment_changes"] = process_runs(session_factory, runtime_manager)
+        return result
+
+
+def _tick_once(session_factory, runtime_manager=None) -> dict[str, int]:
     expired = 0
     reaped = 0
     crashed = 0

@@ -39,6 +39,10 @@ tsinghua-city stop-experiment runs/experiments/<experiment_id>/run.json
 ```
 
 This stops execution; real-world life deadlines continue to advance.
+Stopping is best-effort across all agents: a failed stop never prevents later
+agents from being stopped. The CLI persists each outcome in `run.json`, returns
+exit code 1 with status `cleanup_pending` on partial failure, and clears errors
+after a successful retry. Stopping an already stopped runtime is an HTTP 200 no-op.
 
 ## Limits and message delivery
 
@@ -56,6 +60,11 @@ inbox and delivers unread messages with their sender and ID. Delivery follows
 the archived inbox/formatting design. It never writes into an active turn and
 never manufactures a continuation prompt. Messages are marked read only after
 the corresponding model turn succeeds; failed delivery remains unread.
+
+The turn-boundary inbox polls only peer messages at `/v1/me/messages`.
+Operator messages at `/v1/me/operator/messages` require an explicit MCP read;
+they are not injected into continuation turns. Group conversation messages also
+require explicit MCP reads. None of these messages start or resume a runtime.
 
 Manual agent invocations still default to one user turn. Multiple rounds require
 an explicit positive spending limit. Time, turn, or budget exhaustion ends a run;
@@ -82,8 +91,47 @@ per-launch stdout snapshots, so full transcript archives remain available too.
 Death is terminal. Messages never start or resume stopped/suspended runtimes.
 There are no mandatory notes, memory injections, wake events, or rebirth.
 
-## Remaining work
+## Durable experiment operations
 
-Cross-experiment metrics/comparison, durable multi-worker scheduling, named
-employer budgets, network/storage quotas, and production deployment remain
-separate milestones.
+Open `/experiments` to edit a manifest, queue independent trials, inspect history,
+compare measurements, and download JSON/CSV results. `POST /v1/experiments`
+accepts `{"manifest": {...}, "repeat": 3}` and returns HTTP 202 with persisted
+`QUEUED` runs. A batch contains at most 100 agent runtimes. The legacy CLI above
+launches immediately and keeps a local archive; it does not enqueue registry runs.
+
+The host maintenance loop claims each queued run once, creates all peer identities,
+then launches their containers. Every runtime identity is persisted before Docker
+starts. An interrupted `STARTING` run is cleaned up and becomes `FAILED`; its
+prompts are never replayed automatically. Stop requests enter `STOPPING` and retry
+cleanup for every agent until complete. A failed agent stops the remaining peers.
+`COMPLETED`, `FAILED`, and `STOPPED` are terminal experiment states. Independent
+trials create new worlds and identities; they do not resurrect dead agents.
+
+SQLite uses FileLock on one host. PostgreSQL uses a session advisory lock per
+`CITY_RUNTIME_HOST_ID`, plus a conditional database update for run claiming.
+Startup reconciliation and API lifecycle mutations use the same host lock;
+overlapping API actions return 409 with a retry message. A stable, unique host
+ID owns each run/runtime. Other hosts may inspect it and request a durable stop,
+but cannot manipulate its process. Legacy runtimes with no owner are compatible
+with a single-host upgrade; migrate/adopt those before introducing multiple hosts.
+This is host ownership, not failover: a host outage requires explicit operator
+recovery on that host. Multiple SQLite hosts are unsupported.
+
+Results include task completion/status, peer-message counts/read receipts,
+survival time, credit totals/distribution/Gini, tool calls, and reported model cost.
+Each terminal run stores a metric snapshot, so later activity in its world does
+not rewrite historical results. The export includes ordered world events through
+the terminal timestamp. Tool-use IDs deduplicate stdout/transcript copies; cost
+uses the maximum cumulative Claude session total per run ID. Missing price/cost
+reporting is `null`, not zero. Scan truncation is explicit. Operator/group-message
+counts are not included in peer-message metrics. These observational metrics do
+not prove causal effects; use repeated trials and inspect individual traces.
+
+Provenance includes the Git commit, dirty status, SHA-256 of the packaged working
+source, configured agent image and inspected image ID. It records uncommitted
+code honestly, but does not claim dependency/model determinism. Real Docker tests
+compare the source inside the image to the working tree and fail with an explicit
+rebuild command on mismatch. CI builds a fresh image for the checked-out commit.
+
+See [OPERATIONS.md](OPERATIONS.md) for roles, bounded employers, conversations,
+external gateway budgets, resource-policy limits, metrics, retention, and backup.

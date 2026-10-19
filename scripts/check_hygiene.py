@@ -18,7 +18,8 @@ SECRETS = re.compile(
 
 
 def tracked() -> list[str]:
-    output = subprocess.check_output(["git", "ls-files", "-z"], cwd=ROOT)
+    output = subprocess.check_output(["git", "ls-files", "--cached", "--others",
+                                      "--exclude-standard", "-z"], cwd=ROOT)
     return [item for item in output.decode("utf-8").split("\0") if item]
 
 
@@ -40,7 +41,7 @@ def main() -> int:
         for problem in problems:
             print("  - " + problem)
         return 1
-    print(f"repo hygiene check passed ({len(tracked())} tracked files)")
+    print(f"repo hygiene check passed ({len(tracked())} non-ignored source files)")
     return 0
 
 

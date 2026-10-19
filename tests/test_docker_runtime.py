@@ -55,6 +55,38 @@ def test_exit_classification_and_restart(client, admin_headers, code, expected):
     assert (runtime["next_restart_at"] is None) == (code == 0)
 
 
+def test_stop_completed_runtime_is_idempotent(client, admin_headers, session_factory):
+    from sqlalchemy import func, select
+
+    from tsinghua_city.models import Agent, Event
+
+    manager = client.app.state.runtime_manager
+    adapter = FakeDocker()
+    adapter.exit_code = 0
+    manager._adapters["docker"] = adapter
+    world = create_world(client, admin_headers)
+    agent = create_agent(client, admin_headers, world["id"], "alice")
+    base = f"/v1/worlds/{world['id']}/agents/{agent['id']}/runtime"
+    client.post(base + "/start", headers=admin_headers, json={
+        "adapter": "docker", "command": ["python"],
+    }).raise_for_status()
+    adapter.running = False
+    completed = client.get(base, headers=admin_headers).json()
+    assert completed["status"] == "STOPPED"
+    with session_factory() as session:
+        before = (session.get(Agent, agent["id"]).token_hash,
+                  session.scalar(select(func.count()).select_from(Event)))
+    for action in ("stop", "terminate", "stop"):
+        response = client.post(base + "/" + action, headers=admin_headers)
+        assert response.status_code == 200
+        assert response.json() == completed
+    assert client.post(base + "/suspend", headers=admin_headers).status_code == 409
+    assert adapter.stops == 1
+    with session_factory() as session:
+        assert before == (session.get(Agent, agent["id"]).token_hash,
+                          session.scalar(select(func.count()).select_from(Event)))
+
+
 def test_dead_container_is_stopped_even_if_already_reaped(client, admin_headers, session_factory):
     from tsinghua_city.models import Agent
     from tsinghua_city.scheduler import tick_once

@@ -3,5 +3,8 @@
 !README.md
 !tsinghua_city/
 !tsinghua_city/**
+!alembic.ini
+!migrations/
+!migrations/**
 tsinghua_city/**/__pycache__/
 **/.env*

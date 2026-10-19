@@ -87,7 +87,8 @@ async def test_mcp_stdio_tools_against_live_api(tmp_path: Path) -> None:
             await session.initialize()
             tools = await session.list_tools()
             names = {tool.name for tool in tools.tools}
-            assert {"check_state", "check_balance", "send_message"} <= names
+            assert {"check_state", "check_balance", "send_message", "create_conversation",
+                    "send_group_message", "get_group_messages"} <= names
 
             state = await session.call_tool("check_state", {})
             assert not state.isError
@@ -102,6 +103,16 @@ async def test_mcp_stdio_tools_against_live_api(tmp_path: Path) -> None:
             assert not sent.isError
             message = json.loads(sent.content[0].text)
             assert message["body"] == "via stdio"
+            created = await session.call_tool("create_conversation", {"name": "team", "members": ["bob"]})
+            assert not created.isError
+            group_id = json.loads(created.content[0].text)["id"]
+            group_sent = await session.call_tool("send_group_message", {
+                "conversation_id": group_id, "body": "group via stdio", "client_message_id": "m1",
+            })
+            assert not group_sent.isError
+            received = await session.call_tool("get_group_messages", {"conversation_id": group_id})
+            assert not received.isError
+            assert json.loads(received.content[0].text)["body"] == "group via stdio"
     finally:
         server.should_exit = True
         thread.join(timeout=10)

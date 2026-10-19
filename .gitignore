@@ -6,6 +6,8 @@ runs/
 *.sqlite3
 .env
 .env.*
+deploy/secrets/
+deploy/certs/
 !.env.example
 
 # python
