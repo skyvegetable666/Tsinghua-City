@@ -1,8 +1,8 @@
 # Testing guide
 
 - **Code checkpoint:** `9e4c066`
-- **Default expectation:** `42 passed, 6 skipped` (four Docker + two Postgres checks)
-- **With Docker:** `46 passed, 2 skipped`
+- **Default expectation:** `43 passed, 6 skipped` (four Docker + two Postgres checks)
+- **With Docker:** `47 passed, 2 skipped`
 
 ## 1. Local setup
 
@@ -57,7 +57,7 @@ Use a **disposable** database. The fixture drops and recreates tables.
 pip install -e '.[dev,postgres]'
 export CITY_TEST_DATABASE_URL=postgresql+psycopg://postgres:city@127.0.0.1:5432/city_test
 pytest -q
-# expected without Docker: 44 passed, 4 skipped
+# expected without Docker: 45 passed, 4 skipped
 
 pytest -q tests/test_postgres_concurrency.py -vv
 # both tests must pass; one transfer is 409, the other ok

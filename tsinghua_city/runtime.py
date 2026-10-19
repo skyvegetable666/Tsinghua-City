@@ -9,6 +9,7 @@ the same lifecycle interface for isolated experiments.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import subprocess
 import sys
@@ -24,6 +25,8 @@ from sqlalchemy.orm import Session
 from . import service
 from .config import Settings, iso, utcnow
 from .models import Agent, AgentRuntime, World
+
+logger = logging.getLogger(__name__)
 
 RUNNING = "RUNNING"
 SUSPENDED = "SUSPENDED"
@@ -475,7 +478,17 @@ class RuntimeManager:
             )
         ).all()
         for runtime in runtimes:
-            if not self._adapter(runtime.adapter).is_running(runtime):
+            try:
+                running = self._adapter(runtime.adapter).is_running(runtime)
+            except service.DomainError as exc:
+                logger.warning(
+                    "cannot inspect runtime %s (%s): %s",
+                    runtime.id,
+                    runtime.adapter,
+                    exc.message,
+                )
+                continue
+            if not running:
                 self._mark_crashed(session, runtime, "process is not running")
                 changed += 1
         if changed:
@@ -527,7 +540,17 @@ class RuntimeManager:
                 select(AgentRuntime).where(AgentRuntime.status == RUNNING)
             ).all()
             for runtime in runtimes:
-                if not self._adapter(runtime.adapter).is_running(runtime):
+                try:
+                    running = self._adapter(runtime.adapter).is_running(runtime)
+                except service.DomainError as exc:
+                    logger.warning(
+                        "cannot inspect runtime %s (%s) during reconcile: %s",
+                        runtime.id,
+                        runtime.adapter,
+                        exc.message,
+                    )
+                    continue
+                if not running:
                     self._mark_crashed(session, runtime, "lost on manager restart")
                     changed += 1
             if changed:

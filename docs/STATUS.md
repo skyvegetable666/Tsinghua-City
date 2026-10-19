@@ -45,7 +45,7 @@ real two-agent task cycle. This remains a single-machine research alpha.
 Local checkpoint with real Docker integration enabled:
 
 ~~~text
-46 passed, 2 skipped
+47 passed, 2 skipped
 ~~~
 
 The skipped tests are Postgres-only concurrency checks. The two-agent reference

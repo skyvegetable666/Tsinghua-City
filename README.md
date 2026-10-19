@@ -15,7 +15,7 @@ inside Docker, including payment, life extension, and session resume.
 - Milestone history: [docs/CHANGELOG.md](docs/CHANGELOG.md)
 
 - **Code checkpoint:** `9e4c066`
-- **With real Docker tests:** `46 passed, 2 skipped`
+- **With real Docker tests:** `47 passed, 2 skipped`
 - **Old prototype:** frozen under `archive/genesis-lab/` (zero runtime imports)
 
 ---
@@ -265,7 +265,7 @@ Tsinghua-City/
 
 ~~~bash
 pytest -q
-# default: 42 passed, 6 skipped (Docker/Postgres)
+# default: 43 passed, 6 skipped (Docker/Postgres)
 ~~~
 
 The two skips are Postgres-only concurrency tests.
@@ -276,7 +276,7 @@ With a disposable Postgres:
 pip install -e '.[dev,postgres]'
 export CITY_TEST_DATABASE_URL=postgresql+psycopg://.../city_test
 pytest -q
-# expected without Docker: 44 passed, 4 skipped
+# expected without Docker: 45 passed, 4 skipped
 ~~~
 
 Windows testers with a system proxy should read [docs/TESTING.md](docs/TESTING.md). The loopback test client and MCP sidecar bypass WinINET proxies, but external harnesses may still need `NO_PROXY`.

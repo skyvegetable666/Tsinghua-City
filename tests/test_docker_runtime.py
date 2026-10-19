@@ -66,6 +66,32 @@ def test_runtime_dispatch_uses_persisted_adapter(client, admin_headers, session_
     assert client.post(base + "/stop", headers=admin_headers).status_code == 200
 
 
+def test_reconcile_survives_unavailable_docker(client, admin_headers, session_factory):
+    from tsinghua_city.models import AgentRuntime
+    from tsinghua_city.service import DomainError
+
+    manager = client.app.state.runtime_manager
+    adapter = FakeDocker()
+    manager._adapters["docker"] = adapter
+    world = create_world(client, admin_headers)
+    agent = create_agent(client, admin_headers, world["id"], "alice")
+    base = f"/v1/worlds/{world['id']}/agents/{agent['id']}/runtime"
+    started = client.post(base + "/start", headers=admin_headers, json={
+        "adapter": "docker", "command": ["python"],
+    })
+    assert started.status_code == 200
+
+    def unavailable(runtime):
+        raise DomainError("Docker unavailable", 503)
+
+    adapter.is_running = unavailable
+    assert manager.reconcile() == 0
+    with session_factory() as session:
+        runtime = session.get(AgentRuntime, started.json()["id"])
+        assert runtime is not None
+        assert runtime.status == "RUNNING"
+
+
 def test_unavailable_docker_does_not_mark_runtime_crashed(client, admin_headers):
     from tsinghua_city.service import DomainError
 
