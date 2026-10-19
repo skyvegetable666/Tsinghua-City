@@ -86,6 +86,11 @@
   .msg.board .hd .kind { color:var(--tool); }
   .msg.bad { border-color:#5e2d2d; }
   .msg.bad .hd .kind { color:var(--warn); }
+  .lifebar { display:flex; gap:8px; align-items:center; margin:0 0 10px; flex-wrap:wrap; }
+  .lifebar select { flex:1; min-width:180px; background:var(--panel); color:var(--text);
+                    border:1px solid var(--border); border-radius:6px; padding:7px; font-size:11.5px; }
+  .lifebar .life-meta { color:var(--faint); font-size:11px; }
+  .msg .bd .note { color:var(--faint); font-size:11px; }
   .cards3 { display:grid; grid-template-columns:repeat(4,1fr); gap:8px; margin:0 0 14px; }
   @media (max-width:1000px) { .cards3 { grid-template-columns:repeat(2,1fr); } }
   .stat { background:var(--panel); border:1px solid var(--border); border-radius:8px; padding:10px 12px; }
@@ -204,6 +209,11 @@
     tasks: [],
     posts: [],
     events: [],
+    lives: [],
+    currentLifeId: '',
+    currentLife: null,
+    transcript: [],
+    lifeError: '',
     selectedAgent: '',
     tab: 'overview',
     timer: null,
@@ -362,21 +372,81 @@
     if (state.selectedAgent && !state.agents.some(function (a) { return a.id === state.selectedAgent; })) {
       state.selectedAgent = '';
     }
+    if (state.tab === 'agent' && state.selectedAgent) {
+      await loadLives(false);
+    }
     renderWorldSelect();
     renderRail();
     renderMain();
   }
-  function selectWorld(id) { state.worldId = id; state.selectedAgent = ''; refresh(); }
+  function selectWorld(id) {
+    state.worldId = id;
+    state.selectedAgent = '';
+    state.lives = [];
+    state.currentLifeId = '';
+    state.currentLife = null;
+    state.transcript = [];
+    refresh();
+  }
   function selectAgent(id) {
     state.selectedAgent = id;
     state.tab = 'agent';
+    state.lives = [];
+    state.currentLifeId = '';
+    state.currentLife = null;
+    state.transcript = [];
+    state.lifeError = '';
     renderTabs();
     renderRail();
     renderMain();
+    loadLives(true);
   }
   function setTab(tab) {
     state.tab = tab;
     renderTabs();
+    renderMain();
+    if (tab === 'agent' && state.selectedAgent) loadLives(true);
+  }
+  async function loadLives(render) {
+    if (!state.worldId || !state.selectedAgent) return;
+    try {
+      var lives = await api(
+        '/v1/worlds/' + state.worldId + '/agents/' + state.selectedAgent + '/lives?limit=50'
+      );
+      state.lives = lives;
+      if (!lives.length) {
+        state.currentLifeId = '';
+        state.currentLife = null;
+        state.transcript = [];
+        state.lifeError = '';
+      } else {
+        var chosen = state.currentLifeId;
+        if (!lives.some(function (life) { return life.id === chosen; })) {
+          chosen = lives[0].id;
+        }
+        state.currentLifeId = chosen;
+        state.currentLife = await api(
+          '/v1/worlds/' + state.worldId + '/agents/' + state.selectedAgent + '/lives/' + chosen
+        );
+        state.transcript = state.currentLife.events || [];
+      }
+    } catch (err) {
+      state.lifeError = err.message;
+    }
+    if (render) renderMain();
+  }
+  async function selectLife(id) {
+    if (!state.worldId || !state.selectedAgent) return;
+    state.currentLifeId = id;
+    try {
+      state.currentLife = await api(
+        '/v1/worlds/' + state.worldId + '/agents/' + state.selectedAgent + '/lives/' + id
+      );
+      state.transcript = state.currentLife.events || [];
+      state.lifeError = '';
+    } catch (err) {
+      state.lifeError = err.message;
+    }
     renderMain();
   }
 
@@ -481,6 +551,8 @@
     var labels = {
       'agent.created': 'Agent · Created',
       'agent.died': 'Agent · Died',
+      'agent.life.started': 'Agent · Life started',
+      'agent.life.ended': 'Agent · Life ended',
       'credits.transferred': 'System · Transfer',
       'life.extended': 'System · Life extended',
       'message.sent': 'Message · Sent',
@@ -547,8 +619,61 @@
       '<div class="item"><div class="k">runtime</div><div class="v">' +
         (runtime ? '<span class="pill ' + esc(runtime.status) + '">' + esc(runtime.status) + '</span> pid ' + esc(runtime.pid || '—') : 'none') +
       '</div></div></div></div>' +
+      '<div class="section-label">lives & transcript</div>' + lifeSectionHtml() +
       '<div class="msg task"><div class="hd"><span class="kind">tasks involving ' + esc(agent.name) + '</span></div>' +
       '<div class="bd">' + taskRows(ownTasks) + '</div></div>';
+  }
+  function transcriptLabel(kind) {
+    var labels = {
+      birth: 'Birth', 'life-end': 'Life end', tick: 'Tick', error: 'Error',
+      assistant: 'Assistant', tool: 'Tool', system: 'System', idle: 'Idle',
+      task: 'Task', 'wake-notice': 'Wake notice'
+    };
+    return labels[kind] || String(kind || 'event').replace(/\./g, ' · ');
+  }
+  function lifeSectionHtml() {
+    if (state.lifeError) {
+      return '<div class="msg bad"><div class="hd"><span class="kind">transcript error</span></div>' +
+        '<div class="bd">' + esc(state.lifeError) + '</div></div>';
+    }
+    if (!state.lives.length) {
+      return '<div class="msg"><div class="hd"><span class="kind">no lives yet</span></div>' +
+        '<div class="bd">Start the reference harness for this agent to create a life and transcript.</div></div>';
+    }
+    var options = state.lives.map(function (life) {
+      var label = shortId(life.id) + '  ·  ' + life.status + '  ·  ' + fmt(life.started_at);
+      return '<option value="' + esc(life.id) + '"' +
+        (life.id === state.currentLifeId ? ' selected' : '') + '>' + esc(label) + '</option>';
+    }).join('');
+    var html = '<div class="lifebar"><select onchange="selectLife(this.value)">' + options + '</select>' +
+      '<span class="life-meta">' + esc(state.lives.length) + ' life(s)</span></div>';
+    var detail = state.currentLife;
+    if (!detail) return html + '<div class="statusline">Loading transcript…</div>';
+    html += '<div class="msg"><div class="hd"><span class="kind">session</span>' +
+      '<span>' + esc(detail.status) + ' · ' + esc(fmt(detail.started_at)) + '</span></div>' +
+      '<div class="bd">' + esc(shortId(detail.id)) +
+      (detail.session_id ? ' · session ' + esc(detail.session_id) : '') +
+      (detail.ended_at ? ' · ended ' + esc(fmt(detail.ended_at)) : '') +
+      (detail.end_reason ? ' · ' + esc(detail.end_reason) : '') + '</div></div>';
+    if (detail.wake) {
+      html += '<div class="msg"><div class="hd"><span class="kind">wake note</span></div>' +
+        '<div class="bd">' + esc(detail.wake) + '</div></div>';
+    }
+    if (detail.diary) {
+      html += '<div class="msg"><div class="hd"><span class="kind">diary</span></div>' +
+        '<div class="bd">' + esc(detail.diary) + '</div></div>';
+    }
+    if (!state.transcript.length) {
+      html += '<div class="statusline">No transcript events yet.</div>';
+    } else {
+      state.transcript.forEach(function (event) {
+        var body = event.body || (event.data && Object.keys(event.data).length ? JSON.stringify(event.data) : '');
+        html += '<div class="msg"><div class="hd"><span class="kind">' + esc(transcriptLabel(event.kind)) + '</span>' +
+          '<span>' + esc(event.created_at ? event.created_at.slice(11, 19) : '') + '</span></div>' +
+          '<div class="bd">' + esc(body || '—') + '</div></div>';
+      });
+    }
+    return html;
   }
   function taskRows(tasks) {
     if (!tasks.length) return '<div class="empty">No tasks yet.</div>';

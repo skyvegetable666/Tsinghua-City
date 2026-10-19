@@ -252,6 +252,50 @@ def cancel_task(task_id: str) -> dict[str, Any]:
     return _request("POST", f"/v1/me/tasks/{task_id}/cancel")
 
 
+@mcp.tool()
+def start_life(session_id: str | None = None, wake: str | None = None) -> dict[str, Any]:
+    """Open a new agent life. Any stale active life is closed first."""
+    body: dict[str, Any] = {}
+    if session_id:
+        body["session_id"] = session_id
+    if wake:
+        body["wake"] = wake
+    return _request("POST", "/v1/me/lives", body)
+
+
+@mcp.tool()
+def end_life(life_id: str, reason: str | None = None, diary: str | None = None) -> dict[str, Any]:
+    """End an active life and optionally leave a diary entry."""
+    body: dict[str, Any] = {}
+    if reason:
+        body["reason"] = reason
+    if diary:
+        body["diary"] = diary
+    return _request("POST", f"/v1/me/lives/{life_id}/end", body)
+
+
+@mcp.tool()
+def log_life_event(
+    life_id: str,
+    kind: str,
+    body: str | None = None,
+    data: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Append a transcript event to a life."""
+    payload: dict[str, Any] = {"kind": kind}
+    if body is not None:
+        payload["body"] = body
+    if data is not None:
+        payload["data"] = data
+    return _request("POST", f"/v1/me/lives/{life_id}/events", payload)
+
+
+@mcp.tool()
+def list_lives(limit: int = 50) -> list[dict[str, Any]]:
+    """List your recent lives, newest first."""
+    return _request("GET", f"/v1/me/lives?limit={int(limit)}")
+
+
 def main() -> None:
     mcp.run()
 

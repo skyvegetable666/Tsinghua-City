@@ -32,6 +32,10 @@ from .schemas import (
     EventOut,
     ExtendLifeRequest,
     HealthOut,
+    LifeDetailOut,
+    LifeEnd,
+    LifeOut,
+    LifeStart,
     MarkReadRequest,
     MessageCreate,
     MessageOut,
@@ -47,6 +51,8 @@ from .schemas import (
     TaskOut,
     TaskReject,
     TaskSubmit,
+    TranscriptEventCreate,
+    TranscriptEventOut,
     TransferRequest,
     WorldCreate,
     WorldOut,
@@ -397,6 +403,35 @@ def create_app(
             raise HTTPException(status_code=404, detail="world not found")
         return {"reconciled": runtime_manager.reconcile()}
 
+    @app.get(
+        "/v1/worlds/{world_id}/agents/{agent_id}/lives",
+        response_model=list[LifeOut],
+    )
+    def admin_list_lives(
+        world_id: str,
+        agent_id: str,
+        limit: int = Query(default=50, ge=1, le=200),
+        _admin: None = Depends(require_admin),
+        session: Session = Depends(get_db),
+    ) -> list[dict[str, Any]]:
+        _world, agent = runtime_subject(world_id, agent_id, session)
+        return [service.life_view(life) for life in service.list_lives(session, agent, limit=limit)]
+
+    @app.get(
+        "/v1/worlds/{world_id}/agents/{agent_id}/lives/{life_id}",
+        response_model=LifeDetailOut,
+    )
+    def admin_get_life(
+        world_id: str,
+        agent_id: str,
+        life_id: str,
+        _admin: None = Depends(require_admin),
+        session: Session = Depends(get_db),
+    ) -> dict[str, Any]:
+        world, agent = runtime_subject(world_id, agent_id, session)
+        life = service._get_life(session, world, agent, life_id)
+        return service.life_detail_view(session, world, agent, life)
+
     @app.post(
         "/v1/worlds/{world_id}/tasks",
         response_model=TaskOut,
@@ -505,6 +540,71 @@ def create_app(
     @app.get("/v1/me/balance", response_model=BalanceOut)
     def balance(auth: AgentAuth = Depends(require_agent)) -> dict[str, int]:
         return {"balance": service.account_balance(auth.session, auth.agent)}
+
+    @app.post("/v1/me/lives", response_model=LifeOut, status_code=201)
+    def start_my_life(
+        body: LifeStart,
+        auth: AgentAuth = Depends(require_agent),
+    ) -> dict[str, Any]:
+        life = service.start_life(
+            auth.session,
+            auth.world,
+            auth.agent,
+            session_id=body.session_id,
+            wake=body.wake,
+        )
+        return service.life_view(life)
+
+    @app.get("/v1/me/lives", response_model=list[LifeOut])
+    def my_lives(
+        limit: int = Query(default=50, ge=1, le=200),
+        auth: AgentAuth = Depends(require_agent),
+    ) -> list[dict[str, Any]]:
+        return [
+            service.life_view(life)
+            for life in service.list_lives(auth.session, auth.agent, limit=limit)
+        ]
+
+    @app.get("/v1/me/lives/{life_id}", response_model=LifeDetailOut)
+    def my_life(
+        life_id: str,
+        auth: AgentAuth = Depends(require_agent),
+    ) -> dict[str, Any]:
+        life = service._get_life(auth.session, auth.world, auth.agent, life_id)
+        return service.life_detail_view(auth.session, auth.world, auth.agent, life)
+
+    @app.post("/v1/me/lives/{life_id}/events", response_model=TranscriptEventOut, status_code=201)
+    def append_my_life_event(
+        life_id: str,
+        body: TranscriptEventCreate,
+        auth: AgentAuth = Depends(require_agent),
+    ) -> dict[str, Any]:
+        event = service.append_transcript_event(
+            auth.session,
+            auth.world,
+            auth.agent,
+            life_id,
+            kind=body.kind,
+            body=body.body,
+            data=body.data,
+        )
+        return service.transcript_event_view(event)
+
+    @app.post("/v1/me/lives/{life_id}/end", response_model=LifeOut)
+    def end_my_life(
+        life_id: str,
+        body: LifeEnd,
+        auth: AgentAuth = Depends(require_agent),
+    ) -> dict[str, Any]:
+        life = service.end_life(
+            auth.session,
+            auth.world,
+            auth.agent,
+            life_id,
+            reason=body.reason,
+            diary=body.diary,
+        )
+        return service.life_view(life)
 
     @app.post("/v1/me/extend-life")
     def extend_life(

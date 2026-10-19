@@ -87,7 +87,14 @@ async def test_mcp_stdio_tools_against_live_api(tmp_path: Path) -> None:
             await session.initialize()
             tools = await session.list_tools()
             names = {tool.name for tool in tools.tools}
-            assert {"check_state", "check_balance", "send_message"} <= names
+            assert {
+                "check_state",
+                "check_balance",
+                "send_message",
+                "start_life",
+                "end_life",
+                "list_lives",
+            } <= names
 
             state = await session.call_tool("check_state", {})
             assert not state.isError

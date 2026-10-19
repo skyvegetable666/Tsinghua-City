@@ -21,7 +21,7 @@ from mcp.client.stdio import stdio_client
 
 from .harness_policy import run_tick
 
-LIST_TOOLS = {"get_inbox", "list_posts", "list_tasks", "list_agents"}
+LIST_TOOLS = {"get_inbox", "list_posts", "list_tasks", "list_agents", "list_lives"}
 
 
 def decode_tool_content(name: str, contents: list[Any]) -> Any:
@@ -68,41 +68,121 @@ async def _run(args: argparse.Namespace) -> int:
                 raise RuntimeError(f"MCP tool {name} failed")
             return decode_tool_content(name, list(result.content or []))
 
-        while args.ticks == 0 or tick < args.ticks:
-            started = time.time()
+        life_id: str | None = None
+        try:
             try:
-                result = await run_tick(call, tick)
+                life = await call("start_life", {})
+                if isinstance(life, dict):
+                    life_id = life.get("id")
+                if life_id:
+                    await call(
+                        "log_life_event",
+                        {
+                            "life_id": life_id,
+                            "kind": "birth",
+                            "body": "reference harness started",
+                            "data": {"pid": os.getpid(), "ticks": args.ticks},
+                        },
+                    )
             except Exception as exc:
-                record = {
-                    "tick": tick,
-                    "ts": time.time(),
-                    "error": f"{type(exc).__name__}: {exc}",
-                }
-                print(json.dumps(record), flush=True)
-                if args.ticks and tick + 1 >= args.ticks:
-                    return 1
-                await asyncio.sleep(args.interval)
-                tick += 1
-                continue
+                print(
+                    json.dumps(
+                        {"life": "start_failed", "error": f"{type(exc).__name__}: {exc}"}
+                    ),
+                    flush=True,
+                )
 
-            agent = result["agent"]
-            journal_path = journal_dir / f"{agent}.jsonl"
-            with journal_path.open("a", encoding="utf-8") as journal:
-                journal.write(json.dumps({"ts": time.time(), **result}) + "\n")
-            print(
-                json.dumps(
-                    {
-                        "agent": agent,
+            while args.ticks == 0 or tick < args.ticks:
+                started = time.time()
+                try:
+                    result = await run_tick(call, tick)
+                except Exception as exc:
+                    record = {
                         "tick": tick,
-                        "elapsed": round(time.time() - started, 3),
-                        "actions": len(result["actions"]),
+                        "ts": time.time(),
+                        "error": f"{type(exc).__name__}: {exc}",
                     }
-                ),
-                flush=True,
-            )
-            tick += 1
-            if args.ticks == 0 or tick < args.ticks:
-                await asyncio.sleep(args.interval)
+                    print(json.dumps(record), flush=True)
+                    if life_id:
+                        try:
+                            await call(
+                                "log_life_event",
+                                {
+                                    "life_id": life_id,
+                                    "kind": "error",
+                                    "body": record["error"],
+                                    "data": {"tick": tick},
+                                },
+                            )
+                        except Exception:
+                            pass
+                    if args.ticks and tick + 1 >= args.ticks:
+                        return 1
+                    await asyncio.sleep(args.interval)
+                    tick += 1
+                    continue
+
+                agent = result["agent"]
+                journal_path = journal_dir / f"{agent}.jsonl"
+                with journal_path.open("a", encoding="utf-8") as journal:
+                    journal.write(json.dumps({"ts": time.time(), **result}) + "\n")
+                if life_id:
+                    try:
+                        await call(
+                            "log_life_event",
+                            {
+                                "life_id": life_id,
+                                "kind": "tick",
+                                "body": (
+                                    f"tick {tick} · {len(result.get('actions', []))} actions"
+                                ),
+                                "data": {
+                                    "agent": agent,
+                                    "tick": tick,
+                                    "actions": [
+                                        action.get("tool")
+                                        for action in result.get("actions", [])
+                                    ],
+                                    "elapsed": round(time.time() - started, 3),
+                                },
+                            },
+                        )
+                    except Exception:
+                        pass
+                print(
+                    json.dumps(
+                        {
+                            "agent": agent,
+                            "tick": tick,
+                            "elapsed": round(time.time() - started, 3),
+                            "actions": len(result["actions"]),
+                        }
+                    ),
+                    flush=True,
+                )
+                tick += 1
+                if args.ticks == 0 or tick < args.ticks:
+                    await asyncio.sleep(args.interval)
+        finally:
+            if life_id:
+                try:
+                    await call(
+                        "log_life_event",
+                        {
+                            "life_id": life_id,
+                            "kind": "life-end",
+                            "body": "reference harness exiting",
+                        },
+                    )
+                except Exception:
+                    pass
+                try:
+                    await call(
+                        "end_life",
+                        {"life_id": life_id, "reason": "harness_exit"},
+                    )
+                except Exception:
+                    pass
     return 0
 
 

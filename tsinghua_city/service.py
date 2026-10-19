@@ -21,6 +21,7 @@ from .config import iso, utcnow
 from .models import (
     Account,
     Agent,
+    AgentLife,
     Event,
     LedgerEntry,
     LedgerTransaction,
@@ -28,6 +29,7 @@ from .models import (
     Post,
     PostReply,
     Task,
+    TranscriptEvent,
     World,
 )
 from .schemas import WorldConfig
@@ -390,6 +392,196 @@ def list_agents(session: Session, world: World, *, exclude_agent_id: str | None 
     if exclude_agent_id is not None:
         query = query.where(Agent.id != exclude_agent_id)
     return list(session.scalars(query).all())
+
+
+def _get_life(
+    session: Session,
+    world: World,
+    agent: Agent,
+    life_id: str,
+) -> AgentLife:
+    life = session.get(AgentLife, life_id)
+    if life is None or life.agent_id != agent.id or life.world_id != world.id:
+        raise DomainError("life not found", 404)
+    return life
+
+
+def start_life(
+    session: Session,
+    world: World,
+    agent: Agent,
+    *,
+    session_id: str | None = None,
+    wake: str | None = None,
+) -> AgentLife:
+    """Open a new cognitive life, closing any stale active life first."""
+    now = utcnow()
+    active = session.scalars(
+        select(AgentLife).where(
+            AgentLife.agent_id == agent.id,
+            AgentLife.status == "ACTIVE",
+        )
+    ).all()
+    for previous in active:
+        previous.status = "ENDED"
+        previous.ended_at = now
+        previous.end_reason = "superseded"
+        _emit(
+            session,
+            world.id,
+            "agent.life.ended",
+            actor_agent_id=agent.id,
+            data={"life_id": previous.id, "reason": "superseded"},
+        )
+    life = AgentLife(
+        id=_id("life_"),
+        world_id=world.id,
+        agent_id=agent.id,
+        session_id=(session_id.strip() if session_id else None),
+        status="ACTIVE",
+        started_at=now,
+        ended_at=None,
+        end_reason=None,
+        wake=wake,
+        diary=None,
+    )
+    session.add(life)
+    _emit(
+        session,
+        world.id,
+        "agent.life.started",
+        actor_agent_id=agent.id,
+        data={"life_id": life.id, "session_id": life.session_id},
+    )
+    session.commit()
+    return life
+
+
+def end_life(
+    session: Session,
+    world: World,
+    agent: Agent,
+    life_id: str,
+    *,
+    reason: str | None = None,
+    diary: str | None = None,
+) -> AgentLife:
+    life = _get_life(session, world, agent, life_id)
+    if life.status == "ENDED":
+        raise DomainError("life has already ended", 409)
+    life.status = "ENDED"
+    life.ended_at = utcnow()
+    life.end_reason = (reason or "ended")[:128]
+    if diary is not None:
+        life.diary = diary
+    _emit(
+        session,
+        world.id,
+        "agent.life.ended",
+        actor_agent_id=agent.id,
+        data={"life_id": life.id, "reason": life.end_reason},
+    )
+    session.commit()
+    return life
+
+
+def append_transcript_event(
+    session: Session,
+    world: World,
+    agent: Agent,
+    life_id: str,
+    *,
+    kind: str,
+    body: str | None = None,
+    data: dict[str, Any] | None = None,
+) -> TranscriptEvent:
+    life = _get_life(session, world, agent, life_id)
+    event = TranscriptEvent(
+        world_id=world.id,
+        agent_id=agent.id,
+        life_id=life.id,
+        kind=kind,
+        body=body,
+        data=dict(data or {}),
+        created_at=utcnow(),
+    )
+    session.add(event)
+    session.commit()
+    return event
+
+
+def list_lives(
+    session: Session,
+    agent: Agent,
+    *,
+    limit: int = 50,
+) -> list[AgentLife]:
+    limit = max(1, min(int(limit), 200))
+    return list(
+        session.scalars(
+            select(AgentLife)
+            .where(AgentLife.agent_id == agent.id)
+            .order_by(AgentLife.started_at.desc())
+            .limit(limit)
+        ).all()
+    )
+
+
+def transcript_events(
+    session: Session,
+    life: AgentLife,
+    *,
+    limit: int = 1000,
+) -> list[TranscriptEvent]:
+    limit = max(1, min(int(limit), 5000))
+    return list(
+        session.scalars(
+            select(TranscriptEvent)
+            .where(TranscriptEvent.life_id == life.id)
+            .order_by(TranscriptEvent.created_at, TranscriptEvent.id)
+            .limit(limit)
+        ).all()
+    )
+
+
+def life_view(life: AgentLife) -> dict[str, Any]:
+    return {
+        "id": life.id,
+        "world_id": life.world_id,
+        "agent_id": life.agent_id,
+        "session_id": life.session_id,
+        "status": life.status,
+        "started_at": iso(life.started_at),
+        "ended_at": iso(life.ended_at),
+        "end_reason": life.end_reason,
+    }
+
+
+def transcript_event_view(event: TranscriptEvent) -> dict[str, Any]:
+    return {
+        "id": event.id,
+        "kind": event.kind,
+        "body": event.body,
+        "data": event.data,
+        "created_at": iso(event.created_at),
+    }
+
+
+def life_detail_view(
+    session: Session,
+    world: World,
+    agent: Agent,
+    life: AgentLife,
+) -> dict[str, Any]:
+    return {
+        **life_view(life),
+        "wake": life.wake,
+        "diary": life.diary,
+        "events": [
+            transcript_event_view(event)
+            for event in transcript_events(session, life)
+        ],
+    }
 
 
 def _post_transfer(

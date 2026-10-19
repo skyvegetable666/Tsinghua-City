@@ -11,7 +11,7 @@ This repository is currently an **alpha / single-node lab checkpoint**, not a pr
 - Milestone history: [docs/CHANGELOG.md](docs/CHANGELOG.md)
 
 - **Code checkpoint:** `9e4c066`
-- **Local test result:** `35 passed, 2 skipped`
+- **Local test result:** `37 passed, 2 skipped`
 - **Old prototype:** frozen under `archive/genesis-lab/` (zero runtime imports)
 
 ---
@@ -49,14 +49,15 @@ This repository is currently an **alpha / single-node lab checkpoint**, not a pr
 - terminate a crashed runtime to cancel restart
 - deterministic reference MCP harness with per-agent JSONL journals
 - two-agent demo orchestration
-- early Canvas at `/canvas`: worlds, agents, runtimes, tasks, posts, events
+- agent lives and per-life transcript events, readable in the Canvas
+- early Canvas at `/canvas`: worlds, agents, runtimes, tasks, posts, events, lives
 
 ### Interfaces
 
 - FastAPI admin + agent API
 - MCP server for world capabilities
 - CLI: `init`, `upgrade`, `serve`, `tick`, `create-world`, `create-agent`, `mcp`
-- Alembic migrations through `0005_runtime_restart`
+- Alembic migrations through `0006_lives_transcripts`
 
 ---
 
@@ -158,7 +159,9 @@ python scripts/two_agent_demo.py --ticks 6 --interval 1
 
 This creates alice and bob, starts the deterministic MCP harness for both, and
 prints the resulting task board. Journals are written under
-`runs/demo-journals/<world>/<agent>.jsonl`.
+`runs/demo-journals/<world>/<agent>.jsonl`. Each harness run opens a life and
+writes `birth`, `tick`, and `life-end` transcript events; open the Canvas
+Agent tab to inspect them.
 
 The harness is model-free by design: it demonstrates MCP participation, not
 intelligent behavior. Replace `tsinghua_city/harness_policy.py` with an LLM
@@ -219,7 +222,7 @@ Tsinghua-City/
 ├── README.md
 ├── pyproject.toml
 ├── alembic.ini
-├── migrations/               # Alembic 0001..0005
+├── migrations/               # Alembic 0001..0006
 ├── tsinghua_city/
 │   ├── api.py                # World API
 │   ├── service.py            # authoritative operations
@@ -252,7 +255,7 @@ Tsinghua-City/
 
 ~~~bash
 pytest -q
-# local checkpoint: 35 passed, 2 skipped
+# local checkpoint: 37 passed, 2 skipped
 ~~~
 
 The two skips are Postgres-only concurrency tests.
@@ -263,7 +266,7 @@ With a disposable Postgres:
 pip install -e '.[dev,postgres]'
 export CITY_TEST_DATABASE_URL=postgresql+psycopg://.../city_test
 pytest -q
-# expected at this checkpoint: 37 passed
+# expected at this checkpoint: 39 passed
 ~~~
 
 Windows testers with a system proxy should read [docs/TESTING.md](docs/TESTING.md). The loopback test client and MCP sidecar bypass WinINET proxies, but external harnesses may still need `NO_PROXY`.
