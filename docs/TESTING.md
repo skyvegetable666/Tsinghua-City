@@ -1,8 +1,8 @@
 # Testing guide
 
 - **Code checkpoint:** `9e4c066`
-- **Default expectation:** `43 passed, 6 skipped` (four Docker + two Postgres checks)
-- **With Docker:** `47 passed, 2 skipped`
+- **Default expectation:** `45 passed, 6 skipped` (four Docker + two Postgres checks)
+- **With Docker:** `49 passed, 2 skipped`
 
 ## 1. Local setup
 
@@ -57,7 +57,7 @@ Use a **disposable** database. The fixture drops and recreates tables.
 pip install -e '.[dev,postgres]'
 export CITY_TEST_DATABASE_URL=postgresql+psycopg://postgres:city@127.0.0.1:5432/city_test
 pytest -q
-# expected without Docker: 45 passed, 4 skipped
+# expected without Docker: 47 passed, 4 skipped
 
 pytest -q tests/test_postgres_concurrency.py -vv
 # both tests must pass; one transfer is 409, the other ok
@@ -101,7 +101,20 @@ that the harness sends the first user turn, captures init/assistant/result
 events, constructs an MCP config command, and writes the agent entrypoint's
 JSONL trace. They do not require a model, credentials, or Docker.
 
-## 5. Canvas smoke
+## 5. Trace viewer
+
+~~~bash
+pytest -q tests/test_traces.py
+# 2 passed
+~~~
+
+The server lists JSONL files under `CITY_TRACE_DIR` (default
+`runs/transcripts`) and serves them at `/traces`. The viewer is read-only and
+uses the admin token. Docker agent traces live under the container's
+`/work/transcripts`; use the Docker log export until a host-side trace export
+is added.
+
+## 6. Canvas smoke
 
 Open `http://127.0.0.1:8000/canvas` or:
 
@@ -113,7 +126,7 @@ pytest -q tests/test_canvas.py
 Enter the admin token, select a world, and verify agents/tasks/posts/events/runtime
 statuses render. The Canvas is an admin monitor; it does not expose agent tokens.
 
-## 6. MCP protocol
+## 7. MCP protocol
 
 ~~~powershell
 pytest -q tests/test_mcp_protocol.py -s
@@ -121,7 +134,7 @@ pytest -q tests/test_mcp_protocol.py -s
 
 This starts a live World API and a real `python -m tsinghua_city mcp` stdio process, then checks `tools/list` and `tools/call`.
 
-## 7. Runtime manual acceptance
+## 8. Runtime manual acceptance
 
 Create a world and at least two agents.
 
@@ -152,7 +165,7 @@ Check:
 
 If `serve` is running, its scheduler may restart crashed processes before manual `tick`. For deterministic manual tests, stop the server or set `CITY_SCHEDULER_ENABLED=0`.
 
-## 8. Migration checks
+## 9. Migration checks
 
 Fresh database:
 
@@ -171,7 +184,7 @@ tsinghua-city upgrade
 
 Current tables include: worlds, agents, accounts, ledger transactions/entries, messages, tasks, posts, post_replies, agent_runtimes, events.
 
-## 9. API smoke
+## 10. API smoke
 
 Start:
 
@@ -188,7 +201,7 @@ Useful manual flows:
 - start/suspend/resume/stop a runtime
 - inspect events with admin token
 
-## 10. Reporting
+## 11. Reporting
 
 Include:
 

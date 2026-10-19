@@ -7,6 +7,7 @@ adapter and MCP server are clients of this API, not owners of world state.
 
 from __future__ import annotations
 
+import json
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -53,6 +54,7 @@ from .schemas import (
 )
 
 CANVAS_PATH = Path(__file__).with_name("static") / "canvas.html"
+TRACES_PATH = Path(__file__).with_name("static") / "traces.html"
 
 
 @dataclass
@@ -153,6 +155,55 @@ def create_app(
     @app.get("/canvas", include_in_schema=False)
     def canvas() -> FileResponse:
         return FileResponse(CANVAS_PATH, media_type="text/html")
+
+    @app.get("/traces", include_in_schema=False)
+    def traces_page() -> FileResponse:
+        return FileResponse(TRACES_PATH, media_type="text/html")
+
+    def trace_root() -> Path:
+        return Path(settings.trace_dir).expanduser().resolve()
+
+    @app.get("/v1/traces")
+    def list_traces(_admin: None = Depends(require_admin)) -> list[dict[str, Any]]:
+        root = trace_root()
+        if not root.is_dir():
+            return []
+        rows = []
+        for path in sorted(
+            root.glob("*.jsonl"), key=lambda item: item.stat().st_mtime, reverse=True
+        ):
+            if not path.is_file():
+                continue
+            stat = path.stat()
+            rows.append({"name": path.name, "size": stat.st_size, "modified": stat.st_mtime})
+            if len(rows) >= 200:
+                break
+        return rows
+
+    @app.get("/v1/traces/{name}")
+    def read_trace(
+        name: str,
+        limit: int = Query(default=5000, ge=1, le=20000),
+        _admin: None = Depends(require_admin),
+    ) -> dict[str, Any]:
+        if Path(name).name != name or not name.endswith(".jsonl"):
+            raise HTTPException(status_code=404, detail="trace not found")
+        path = trace_root() / name
+        if not path.is_file():
+            raise HTTPException(status_code=404, detail="trace not found")
+        events: list[Any] = []
+        with path.open(encoding="utf-8") as handle:
+            for line in handle:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    events.append(json.loads(line))
+                except json.JSONDecodeError:
+                    events.append({"type": "raw", "text": line})
+                if len(events) >= limit:
+                    break
+        return {"name": name, "events": events}
 
     @app.get("/health", response_model=HealthOut)
     def health() -> dict[str, Any]:

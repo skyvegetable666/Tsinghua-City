@@ -24,7 +24,8 @@ This is a compact milestone log; Git history remains authoritative.
 - early Canvas at `/canvas` with admin board-read API
 - Claude Code stream-json harness port and `tsinghua-city-agent` entrypoint
 - Docker sandbox image reference in `deploy/`
-- local count: 37 passed / 2 skipped; Postgres expected 39 passed
+- read-only /traces viewer for JSONL run traces
+- local count: 45 passed / 6 skipped without Docker; 49 passed / 2 skipped with Docker
 
 ## Verification snapshots
 

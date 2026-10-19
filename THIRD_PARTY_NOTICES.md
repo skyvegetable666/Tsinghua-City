@@ -2,8 +2,8 @@
 
 ## Agent-Town / docker-AI
 
-Parts of the Docker sandbox layout and verification ideas were adapted from
-Agent-Town:
+Parts of the Docker sandbox layout, trace viewer, and verification ideas were
+adapted from Agent-Town:
 
 https://github.com/stanleyyoeng44-sketch/Agent-Town
 

@@ -16,7 +16,7 @@ inside Docker, including payment, life extension, and session resume.
 - Third-party notices: [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)
 
 - **Code checkpoint:** `9e4c066`
-- **With real Docker tests:** `47 passed, 2 skipped`
+- **With real Docker tests:** `49 passed, 2 skipped`
 - **Old prototype:** frozen under `archive/genesis-lab/` (zero runtime imports)
 
 ---
@@ -56,6 +56,7 @@ inside Docker, including payment, life extension, and session resume.
 - two-agent demo orchestration
 - Claude Code CLI stream-json harness ported from the archive; JSONL run trace
 - early Canvas at `/canvas`: worlds, agents, runtimes, tasks, posts, events
+- trace viewer at `/traces`: per-agent JSONL run traces
 
 ### Interfaces
 
@@ -266,7 +267,7 @@ Tsinghua-City/
 
 ~~~bash
 pytest -q
-# default: 43 passed, 6 skipped (Docker/Postgres)
+# default: 45 passed, 6 skipped (Docker/Postgres)
 ~~~
 
 The two skips are Postgres-only concurrency tests.
@@ -277,7 +278,7 @@ With a disposable Postgres:
 pip install -e '.[dev,postgres]'
 export CITY_TEST_DATABASE_URL=postgresql+psycopg://.../city_test
 pytest -q
-# expected without Docker: 45 passed, 4 skipped
+# expected without Docker: 47 passed, 4 skipped
 ~~~
 
 Windows testers with a system proxy should read [docs/TESTING.md](docs/TESTING.md). The loopback test client and MCP sidecar bypass WinINET proxies, but external harnesses may still need `NO_PROXY`.

@@ -51,6 +51,7 @@ def settings(tmp_path) -> Settings:
         admin_token=ADMIN,
         scheduler_enabled=False,
         runtime_log_dir=str(tmp_path / "runtime"),
+        trace_dir=str(tmp_path / "transcripts"),
     )
 
 

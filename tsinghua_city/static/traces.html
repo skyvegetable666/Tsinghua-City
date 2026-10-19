@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tsinghua City — Traces</title>
+<style>
+  :root { --bg:#181818; --panel:#1f1f1f; --panel2:#252525; --border:#333; --text:#d4d4d4;
+          --dim:#8a8a8a; --faint:#5a5a5a; --accent:#d97757; --ok:#7bc96f; --warn:#e06c75;
+          --user:#e8a33d; --tool:#b08ee0;
+          --mono:'SF Mono',ui-monospace,'Cascadia Code',Menlo,Consolas,monospace; }
+  * { box-sizing:border-box; margin:0; }
+  body { background:var(--bg); color:var(--text); font:13.5px/1.55 var(--mono);
+         height:100vh; display:flex; overflow:hidden; }
+  #rail { width:300px; min-width:300px; background:var(--panel); border-right:1px solid var(--border);
+          display:flex; flex-direction:column; }
+  #rail h1 { color:var(--accent); font-size:13px; padding:14px 14px 4px; }
+  #rail .sub { color:var(--faint); font-size:10.5px; padding:0 14px 10px; }
+  #rail .tokenrow { display:flex; gap:5px; padding:0 10px 8px; }
+  #token { flex:1; min-width:0; background:var(--bg); color:var(--text); border:1px solid var(--border);
+           border-radius:5px; padding:6px; font-size:11px; }
+  #load { background:var(--panel2); color:var(--dim); border:1px solid var(--border); border-radius:5px;
+          padding:6px 8px; font:11px var(--mono); cursor:pointer; }
+  #files { flex:1; overflow-y:auto; padding:4px 8px; }
+  .file { padding:8px 10px; border-radius:6px; cursor:pointer; color:var(--dim); font-size:12px; }
+  .file:hover { background:var(--panel2); }
+  .file.active { background:var(--panel2); outline:1px solid var(--border); color:var(--text); }
+  .file .meta { color:var(--faint); font-size:10.5px; }
+  #main { flex:1; display:flex; flex-direction:column; min-width:0; }
+  #head { display:flex; align-items:center; gap:12px; padding:9px 16px; border-bottom:1px solid var(--border);
+          background:var(--panel); color:var(--dim); font-size:12px; }
+  #head .spacer { flex:1; }
+  #head a { color:var(--accent); text-decoration:none; }
+  #stream { flex:1; overflow-y:auto; padding:14px 20px 60px; }
+  .ev { margin:0 0 10px; border:1px solid var(--border); border-radius:8px; background:var(--panel); overflow:hidden; }
+  .ev .hd { display:flex; justify-content:space-between; gap:10px; padding:4px 10px; border-bottom:1px solid var(--border);
+            background:var(--panel2); color:var(--faint); font-size:10.5px; text-transform:uppercase; letter-spacing:.06em; }
+  .ev .kind { color:var(--accent); }
+  .ev .bd { padding:8px 10px; white-space:pre-wrap; word-wrap:break-word; color:var(--text); font-size:12.5px; }
+  .ev.assistant .kind { color:var(--ok); }
+  .ev.tool .kind { color:var(--tool); }
+  .ev.error .kind { color:var(--warn); }
+  .ev.user .kind { color:var(--user); }
+  .ev pre { white-space:pre-wrap; overflow-wrap:anywhere; color:var(--dim); }
+  .empty { color:var(--faint); padding:30px; }
+</style>
+</head>
+<body>
+<nav id="rail">
+  <h1>tsinghua city</h1>
+  <div class="sub">agent run traces</div>
+  <div class="tokenrow">
+    <input id="token" type="password" placeholder="CITY_ADMIN_TOKEN">
+    <button id="load" onclick="loadFiles()">Load</button>
+  </div>
+  <div id="files"><div class="empty">Enter the admin token to list traces.</div></div>
+</nav>
+<main id="main">
+  <div id="head"><span id="title">select a trace</span><span class="spacer"></span>
+    <a href="/canvas">canvas</a><span id="count"></span></div>
+  <div id="stream"><div class="empty">No trace selected.</div></div>
+</main>
+<script>
+  var selected = '';
+  function $(id) { return document.getElementById(id); }
+  function esc(value) {
+    return String(value === undefined || value === null ? '' : value)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+  function headers() {
+    return {'Authorization': 'Bearer ' + $('token').value.trim()};
+  }
+  async function api(path) {
+    var response = await fetch(path, {headers: headers()});
+    if (!response.ok) throw new Error(path + ' ' + response.status);
+    return response.json();
+  }
+  async function loadFiles() {
+    try {
+      localStorage.setItem('city_admin_token', $('token').value.trim());
+      var files = await api('/v1/traces');
+      var box = $('files');
+      box.innerHTML = '';
+      if (!files.length) { box.innerHTML = '<div class="empty">No trace files in runs/transcripts.</div>'; return; }
+      files.forEach(function (file) {
+        var el = document.createElement('div');
+        el.className = 'file' + (file.name === selected ? ' active' : '');
+        el.innerHTML = '<div>' + esc(file.name) + '</div><div class="meta">' +
+          esc(Math.round(file.size / 1024)) + ' KiB</div>';
+        el.onclick = function () { selectFile(file.name); };
+        box.appendChild(el);
+      });
+      if (!selected && files.length) selectFile(files[0].name);
+    } catch (err) { box.innerHTML = '<div class="empty">' + esc(err.message) + '</div>'; }
+  }
+  async function selectFile(name) {
+    selected = name;
+    $('title').textContent = name;
+    $('stream').innerHTML = '<div class="empty">Loading…</div>';
+    try {
+      var data = await api('/v1/traces/' + encodeURIComponent(name));
+      $('count').textContent = data.events.length + ' events';
+      render(data.events);
+      loadFiles();
+    } catch (err) { $('stream').innerHTML = '<div class="empty">' + esc(err.message) + '</div>'; }
+  }
+  function eventClass(event) {
+    if (event.type === 'error' || event.type === 'run_error') return 'error';
+    if (event.type === 'tool_use' || event.type === 'tool_result') return 'tool';
+    if (event.type === 'assistant_text') return 'assistant';
+    if (event.type === 'turn_started') return 'user';
+    return '';
+  }
+  function eventBody(event) {
+    var type = event.type || 'event';
+    if (event.text) return event.text;
+    if (event.message) return event.message;
+    if (event.error) return event.error;
+    if (event.input_preview) return event.input_preview;
+    if (event.preview) return event.preview;
+    var copy = Object.assign({}, event);
+    delete copy.ts; delete copy.run_id; delete copy.agent_id; delete copy.agent_name; delete copy.world_id;
+    return JSON.stringify(copy);
+  }
+  function render(events) {
+    var stream = $('stream');
+    if (!events.length) { stream.innerHTML = '<div class="empty">Empty trace.</div>'; return; }
+    var html = '';
+    events.forEach(function (event) {
+      var when = event.ts ? new Date(event.ts * 1000).toLocaleTimeString() : '';
+      html += '<div class="ev ' + eventClass(event) + '"><div class="hd"><span class="kind">' +
+        esc(event.type || 'event') + '</span><span>' + esc(when) + '</span></div>' +
+        '<div class="bd">' + esc(eventBody(event)) + '</div></div>';
+    });
+    stream.innerHTML = html;
+    stream.scrollTop = stream.scrollHeight;
+  }
+  (function init() {
+    $('token').value = localStorage.getItem('city_admin_token') || '';
+    if ($('token').value) loadFiles();
+  })();
+</script>
+</body>
+</html>
