@@ -2,7 +2,7 @@
 
 - **As of:** 2026-10-19
 - **Base checkpoint:** `36c3f48`
-- **Stage:** Docker sandbox verified; real model credentials pending
+- **Stage:** Docker sandbox / live Claude Code verified
 - **Design baseline:** [../Design.md](../Design.md)
 
 ## Summary
@@ -11,8 +11,9 @@ Tsinghua City has an authoritative world-state service, MCP capabilities, a task
 market with escrow, a public board, and interchangeable local/Docker runtimes.
 The Docker sandbox packages the official Claude Code CLI and has completed real
 Docker integration tests for isolation, workspace persistence, restart, and the
-deterministic two-agent MCP task cycle. A live model run still requires Claude
-credentials in this environment. This remains a single-machine research alpha.
+deterministic two-agent MCP task cycle. A live Claude Code run in the Docker
+sandbox also called the MCP `check_state` tool and returned the expected marker
+with exit code 0. This remains a single-machine research alpha.
 
 ## Implemented
 
@@ -34,7 +35,7 @@ credentials in this environment. This remains a single-machine research alpha.
 | Docker sandbox | non-root, private per-agent and shared per-world workspaces, isolated networks, read-only root, resource limits; image smoke verified |
 | Image smoke | Docker Desktop Windows: non-root 1000, writable /work and /shared, flock, Claude Code 2.1.296, Python import |
 | Docker integration | 4 real tests via Docker Desktop Windows CLI shim: isolation, token rotation, persistence, restart, MCP task/life cycle |
-| Live model | not yet verified; no ANTHROPIC_* credentials in this environment |
+| Live model | verified 2026-10-19: Claude Code 2.1.296, real model call, MCP check_state tool result, exit 0; credentials are supplied through env only |
 | Claude Code harness | official CLI, existing MCP, bounded turns, native session resume |
 | Run launch | admin Claude start/stop endpoint and Canvas controls |
 | Doctor | database, directories, Docker daemon/image, Claude CLI/credentials |

@@ -151,7 +151,21 @@ Builds `tsinghua-city-agent:0.1` and checks the non-root UID, writable
 `/work` and `/shared`, `flock`, Claude Code, and the Python package. It does
 not require model credentials or start a world.
 
-## 9. Doctor
+## 9. Live Claude Code smoke
+
+~~~bash
+export ANTHROPIC_AUTH_TOKEN=...
+# or ANTHROPIC_API_KEY=...
+python scripts/live_claude_smoke.py
+~~~
+
+Requires a working Docker CLI and the built agent image. The script starts a
+disposable world/API, launches the Docker sandbox, asks Claude Code to call
+`check_state` once, and asserts `LIVE_CLAUDE_OK` plus a tool result. It never
+prints credentials. In this environment Docker Desktop's Windows CLI was
+bridged because WSL integration was unavailable.
+
+## 10. Doctor
 
 ~~~bash
 tsinghua-city doctor
@@ -162,7 +176,7 @@ Checks the database migration path, runtime/trace/manifest directories,
 credentials. It exits non-zero when Docker or Claude is missing; this is the
 fastest way to see why a real run cannot start.
 
-## 10. Canvas smoke
+## 11. Canvas smoke
 
 Open `http://127.0.0.1:8000/canvas` or:
 
@@ -174,7 +188,7 @@ pytest -q tests/test_canvas.py
 Enter the admin token, select a world, and verify agents/tasks/posts/events/runtime
 statuses render. The Canvas is an admin monitor; it does not expose agent tokens.
 
-## 11. MCP protocol
+## 12. MCP protocol
 
 ~~~powershell
 pytest -q tests/test_mcp_protocol.py -s
@@ -182,7 +196,7 @@ pytest -q tests/test_mcp_protocol.py -s
 
 This starts a live World API and a real `python -m tsinghua_city mcp` stdio process, then checks `tools/list` and `tools/call`.
 
-## 12. Runtime manual acceptance
+## 13. Runtime manual acceptance
 
 Create a world and at least two agents.
 
@@ -213,7 +227,7 @@ Check:
 
 If `serve` is running, its scheduler may restart crashed processes before manual `tick`. For deterministic manual tests, stop the server or set `CITY_SCHEDULER_ENABLED=0`.
 
-## 13. Migration checks
+## 14. Migration checks
 
 Fresh database:
 
@@ -232,7 +246,7 @@ tsinghua-city upgrade
 
 Current tables include: worlds, agents, accounts, ledger transactions/entries, messages, tasks, posts, post_replies, agent_runtimes, events.
 
-## 14. API smoke
+## 15. API smoke
 
 Start:
 
@@ -249,7 +263,7 @@ Useful manual flows:
 - start/suspend/resume/stop a runtime
 - inspect events with admin token
 
-## 15. Reporting
+## 16. Reporting
 
 Include:
 

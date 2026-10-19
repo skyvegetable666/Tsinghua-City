@@ -28,6 +28,7 @@ This is a compact milestone log; Git history remains authoritative.
 - secret-free per-runtime experiment manifests
 - admin Claude run launch/stop and Canvas controls
 - `tsinghua-city doctor` host readiness command
+- live Docker + Claude Code + MCP smoke script
 - local count: 51 passed / 6 skipped without Docker; 55 passed / 2 skipped with Docker
 
 ## Verification snapshots
