@@ -1,8 +1,8 @@
 # Testing guide
 
 - **Code checkpoint:** `9e4c066`
-- **Default expectation:** `50 passed, 6 skipped` (four Docker + two Postgres checks)
-- **With Docker:** `54 passed, 2 skipped`
+- **Default expectation:** `51 passed, 6 skipped` (four Docker + two Postgres checks)
+- **With Docker:** `55 passed, 2 skipped`
 
 ## 1. Local setup
 
@@ -57,7 +57,7 @@ Use a **disposable** database. The fixture drops and recreates tables.
 pip install -e '.[dev,postgres]'
 export CITY_TEST_DATABASE_URL=postgresql+psycopg://postgres:city@127.0.0.1:5432/city_test
 pytest -q
-# expected without Docker: 52 passed, 4 skipped
+# expected without Docker: 53 passed, 4 skipped
 
 pytest -q tests/test_postgres_concurrency.py -vv
 # both tests must pass; one transfer is 409, the other ok
@@ -141,7 +141,18 @@ uses the admin token. Docker stop/crash cleanup copies the container's
 `/work/transcripts/*.jsonl` into the host trace directory; while the container
 is running, use `docker logs` for live inspection.
 
-## 8. Canvas smoke
+## 8. Doctor
+
+~~~bash
+tsinghua-city doctor
+~~~
+
+Checks the database migration path, runtime/trace/manifest directories,
+\`CITY_ADMIN_TOKEN\`, Docker CLI/daemon/image, Claude CLI, and model
+credentials. It exits non-zero when Docker or Claude is missing; this is the
+fastest way to see why a real run cannot start.
+
+## 9. Canvas smoke
 
 Open `http://127.0.0.1:8000/canvas` or:
 
@@ -153,7 +164,7 @@ pytest -q tests/test_canvas.py
 Enter the admin token, select a world, and verify agents/tasks/posts/events/runtime
 statuses render. The Canvas is an admin monitor; it does not expose agent tokens.
 
-## 9. MCP protocol
+## 10. MCP protocol
 
 ~~~powershell
 pytest -q tests/test_mcp_protocol.py -s
@@ -161,7 +172,7 @@ pytest -q tests/test_mcp_protocol.py -s
 
 This starts a live World API and a real `python -m tsinghua_city mcp` stdio process, then checks `tools/list` and `tools/call`.
 
-## 10. Runtime manual acceptance
+## 11. Runtime manual acceptance
 
 Create a world and at least two agents.
 
@@ -192,7 +203,7 @@ Check:
 
 If `serve` is running, its scheduler may restart crashed processes before manual `tick`. For deterministic manual tests, stop the server or set `CITY_SCHEDULER_ENABLED=0`.
 
-## 11. Migration checks
+## 12. Migration checks
 
 Fresh database:
 
@@ -211,7 +222,7 @@ tsinghua-city upgrade
 
 Current tables include: worlds, agents, accounts, ledger transactions/entries, messages, tasks, posts, post_replies, agent_runtimes, events.
 
-## 12. API smoke
+## 13. API smoke
 
 Start:
 
@@ -228,7 +239,7 @@ Useful manual flows:
 - start/suspend/resume/stop a runtime
 - inspect events with admin token
 
-## 13. Reporting
+## 14. Reporting
 
 Include:
 

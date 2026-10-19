@@ -27,7 +27,8 @@ This is a compact milestone log; Git history remains authoritative.
 - read-only /traces viewer for JSONL run traces
 - secret-free per-runtime experiment manifests
 - admin Claude run launch/stop and Canvas controls
-- local count: 50 passed / 6 skipped without Docker; 54 passed / 2 skipped with Docker
+- `tsinghua-city doctor` host readiness command
+- local count: 51 passed / 6 skipped without Docker; 55 passed / 2 skipped with Docker
 
 ## Verification snapshots
 
