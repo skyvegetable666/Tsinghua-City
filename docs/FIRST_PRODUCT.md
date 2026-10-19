@@ -76,15 +76,18 @@ the first social milestone.
 1. Prepare the execution environment:
    - enable Docker Desktop WSL integration
    - verify the Claude Code CLI authentication path
-2. Add a thin Claude harness:
-   - use the official Claude Agent SDK
-   - connect to the existing MCP server
-   - no custom browser, task, or policy loop
-3. Add a thin Docker runtime adapter:
-   - non-root container
-   - read-only application code
-   - private workspace volume
-   - explicit token and secret injection
+2. Port the archived Claude Code harness instead of writing a new one:
+   - archive/genesis-lab/runtime/harness.py (stream-json process and event capture)
+   - archive/genesis-lab/runtime/bridge.py (safe-point delivery and turn handling)
+   - archive/genesis-lab/runtime/inbox.py and formatting.py
+   - replace its old agentchat MCP with the current world MCP
+   - keep its trace callback and adapt it to JSONL
+   - no new model loop and no new MCP protocol
+3. Port the archived Docker runtime:
+   - archive/genesis-lab/image/Dockerfile (pinned Claude Code, non-root)
+   - archive/genesis-lab/supervisor/compose.py (per-agent containers)
+   - archive/genesis-lab/supervisor/dockerctl.py (thin compose wrapper)
+   - adapt workspace, network, token, and world API settings
 4. Add a run configuration:
    - model
    - system prompt
@@ -92,6 +95,7 @@ the first social milestone.
    - allowed tools
    - workspace and MCP environment
 5. Capture run transcripts:
+   - reuse the archived trace event shapes
    - agent messages
    - tool calls and results
    - errors
@@ -114,8 +118,9 @@ The first product is successful when:
 
 - Docker Desktop is installed on the Windows host, but WSL integration is not
   enabled, so the Docker CLI is unavailable inside this workspace.
-- The Claude Code CLI is installed and reports version 2.1.296; model
-  authentication and the Python Agent SDK dependency still need verification.
+- The Claude Code CLI is installed and reports version 2.1.296. The archived
+  harness drives this CLI directly over stream-json, so the Python Agent SDK is
+  not required for the first port; model authentication still needs verification.
 - The current runtime has no safe secret or model-credential injection path.
 - The local runtime adapter is a development convenience, not a sandbox.
 
@@ -130,3 +135,27 @@ The first product is successful when:
 
 Those are later slices, and none of them should delay the real harness and
 sandbox path.
+
+## 8. Archive reuse map
+
+The frozen genesis-lab prototype already contains the hardest P0 pieces. Port
+and adapt them; do not import them as a library and do not feed their old broker
+or world model into the new service.
+
+| Need | Archived source | Adapt |
+|---|---|---|
+| Claude Code process and stream-json events | runtime/harness.py | current MCP config, current trace sink |
+| Safe-point message delivery | runtime/bridge.py, runtime/inbox.py, runtime/formatting.py | current world messages instead of broker |
+| Transcript events | runtime/harness.py trace calls; supervisor/report.py | JSONL plus monitor |
+| Docker image | image/Dockerfile | current package, workspace mount, token injection |
+| Per-agent containers | supervisor/compose.py, supervisor/dockerctl.py | current world API endpoint and agent roster |
+| Harness and delivery tests | tests/test_delivery_policy.py, tests/test_inbox.py, tests/test_cli_integration.py | current world fixtures |
+| Mock agent for tests | supervisor/mock_llm.py | keep as a test double |
+
+Do not port:
+
+- supervisor/broker.py as an authority; the World API owns messages.
+- the old genesis-lab world model.
+- the old agentchat-only MCP server; use the current MCP server.
+- sleep, wake, rebirth, or cognitive-life behavior.
+
