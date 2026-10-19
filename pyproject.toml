@@ -29,6 +29,7 @@ dev = [
 
 [project.scripts]
 tsinghua-city = "tsinghua_city.cli:main"
+tsinghua-city-agent = "tsinghua_city.claude_agent:main"
 
 [tool.setuptools.packages.find]
 include = ["tsinghua_city*"]

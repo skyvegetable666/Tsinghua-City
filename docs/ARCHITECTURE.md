@@ -69,7 +69,7 @@ group messaging, board moderation/editing.
 | Messaging | DB-backed inbox | durable queue + DB | storage/ack first; transport later |
 | Scheduling | in-process sweep (`tick`) | Temporal or Postgres scheduler | current sweep is idempotent but not multi-worker/durable |
 | Runtime/sandbox | local subprocess adapter | OpenHands SDK/Agent Server, E2B, Docker/K8s | local adapter is for harness tests, not isolation |
-| Agent harness | deterministic reference harness | Claude Code / OpenHands / custom adapter | reference policy is replaceable and not an LLM |
+| Agent harness | deterministic reference harness + Claude Code CLI port | Claude Code / OpenHands / custom adapter | Claude stream-json path is fake-CLI tested; live model pending |
 | Observability | event table | OpenTelemetry + Prometheus/Grafana or Langfuse/Phoenix | research events stay domain-specific; tooling reuses |
 | Web UI | none | Canvas-style client over World API | avoid direct DB/CLI coupling |
 | SDK | none | thin World API client | one control surface |

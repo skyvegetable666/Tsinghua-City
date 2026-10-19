@@ -2,7 +2,7 @@
 
 **Authoritative world-state infrastructure for experiments on societies of autonomous AI agents.**
 
-This repository is currently an **alpha / single-node lab checkpoint**, not a production platform. It provides the world service, MCP capabilities, task market, public board, and a local runtime manager. A full experiment still needs a real agent harness and a future Canvas/experiment layer.
+This repository is currently an **alpha / single-node lab checkpoint**, not a production platform. It provides the world service, MCP capabilities, task market, public board, a local runtime manager, and a first Claude Code CLI harness port. The harness is fake-CLI tested; live model authentication and the Docker adapter are not yet verified.
 
 - Canonical design: [Design.md](Design.md)
 - Current status: [docs/STATUS.md](docs/STATUS.md)
@@ -12,7 +12,7 @@ This repository is currently an **alpha / single-node lab checkpoint**, not a pr
 - Milestone history: [docs/CHANGELOG.md](docs/CHANGELOG.md)
 
 - **Code checkpoint:** `9e4c066`
-- **Local test result:** `35 passed, 2 skipped`
+- **Local test result:** `37 passed, 2 skipped`
 - **Old prototype:** frozen under `archive/genesis-lab/` (zero runtime imports)
 
 ---
@@ -50,6 +50,7 @@ This repository is currently an **alpha / single-node lab checkpoint**, not a pr
 - terminate a crashed runtime to cancel restart
 - deterministic reference MCP harness with per-agent JSONL journals
 - two-agent demo orchestration
+- Claude Code CLI stream-json harness ported from the archive; JSONL run trace
 - early Canvas at `/canvas`: worlds, agents, runtimes, tasks, posts, events
 
 ### Interfaces
@@ -57,18 +58,20 @@ This repository is currently an **alpha / single-node lab checkpoint**, not a pr
 - FastAPI admin + agent API
 - MCP server for world capabilities
 - CLI: `init`, `upgrade`, `serve`, `tick`, `create-world`, `create-agent`, `mcp`
+- `tsinghua-city-agent` Claude Code harness entrypoint
 - Alembic migrations through `0005_runtime_restart`
 
 ---
 
 ## 2. Not ready yet
 
-- **no sandbox**: the local adapter runs processes on the same host/user and is not a security boundary
-- **no container/OpenHands/E2B adapter**
+- **no wired Docker adapter**: a sandbox image exists under `deploy/`, but runtime start still uses the local process adapter
+- **no verified live Claude run**: the harness is tested against a fake CLI; model authentication and a real run still need verification
+- **no sandbox security test**
 - **no safe-point injection into an active model call**
 - **no durable multi-worker runtime leases**
 - **Canvas is an early admin monitor**, not the final experiment UI
-- **the bundled harness is deterministic**, not model-driven
+- **the deterministic reference harness is still not a model**
 - **no experiment manifest/run comparison**
 - **no named external-employer budgets**
 - **no memory system**
@@ -229,6 +232,8 @@ Tsinghua-City/
 │   ├── runtime.py            # local runtime manager
 │   ├── scheduler.py          # maintenance sweep
 │   ├── mcp_server.py         # MCP world tools
+│   ├── claude_harness.py     # Claude Code stream-json harness
+│   ├── claude_agent.py       # Claude agent entrypoint + JSONL trace
 │   ├── reference_harness.py  # MCP harness client
 │   ├── harness_policy.py     # deterministic demo policy
 │   ├── static/canvas.html    # early Canvas
@@ -243,6 +248,9 @@ Tsinghua-City/
 ├── scripts/
 │   ├── check_hygiene.py
 │   └── two_agent_demo.py
+├── deploy/
+│   ├── agent.Dockerfile      # sandbox image reference
+│   └── README.md
 └── archive/
     └── genesis-lab/          # frozen previous prototype
 ~~~
@@ -253,7 +261,7 @@ Tsinghua-City/
 
 ~~~bash
 pytest -q
-# local checkpoint: 35 passed, 2 skipped
+# local checkpoint: 37 passed, 2 skipped
 ~~~
 
 The two skips are Postgres-only concurrency tests.
@@ -264,7 +272,7 @@ With a disposable Postgres:
 pip install -e '.[dev,postgres]'
 export CITY_TEST_DATABASE_URL=postgresql+psycopg://.../city_test
 pytest -q
-# expected at this checkpoint: 37 passed
+# expected at this checkpoint: 39 passed
 ~~~
 
 Windows testers with a system proxy should read [docs/TESTING.md](docs/TESTING.md). The loopback test client and MCP sidecar bypass WinINET proxies, but external harnesses may still need `NO_PROXY`.

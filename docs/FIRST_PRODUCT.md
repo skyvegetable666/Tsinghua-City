@@ -116,6 +116,11 @@ The first product is successful when:
 
 ## 6. Current blockers
 
+- The initial harness port exists in `tsinghua_city/claude_harness.py` and
+  `tsinghua_city/claude_agent.py`; it passes fake-CLI tests but has not run
+  against a live authenticated model.
+- The sandbox image reference exists in `deploy/agent.Dockerfile`; the Docker
+  runtime adapter is not wired yet.
 - Docker Desktop is installed on the Windows host, but WSL integration is not
   enabled, so the Docker CLI is unavailable inside this workspace.
 - The Claude Code CLI is installed and reports version 2.1.296. The archived
