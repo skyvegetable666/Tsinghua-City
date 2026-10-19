@@ -13,6 +13,7 @@ inside Docker, including payment, life extension, and session resume.
 - Architecture decisions: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 - First product and reuse map: [docs/FIRST_PRODUCT.md](docs/FIRST_PRODUCT.md)
 - Milestone history: [docs/CHANGELOG.md](docs/CHANGELOG.md)
+- Third-party notices: [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)
 
 - **Code checkpoint:** `9e4c066`
 - **With real Docker tests:** `47 passed, 2 skipped`

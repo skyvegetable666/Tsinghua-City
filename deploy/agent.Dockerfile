@@ -1,4 +1,5 @@
-# Reuses archive/genesis-lab/image/Dockerfile and the official Claude Code CLI.
+# Reuses archive/genesis-lab/image/Dockerfile, the official Claude Code CLI, and
+# Agent-Town Docker tooling (MIT; see THIRD_PARTY_NOTICES.md).
 FROM node:22-bookworm-slim AS node
 FROM python:3.11-slim-bookworm
 
@@ -12,6 +13,15 @@ ENV DEBIAN_FRONTEND=noninteractive PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 
     DISABLE_TELEMETRY=1 DISABLE_ERROR_REPORTING=1 \
     CITY_AGENT_WORKDIR=/work CITY_TRACE_DIR=/work/transcripts CITY_TRACE_STDOUT=1
 
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        ca-certificates \
+        curl \
+        git \
+        jq \
+        procps \
+        ripgrep \
+    && rm -rf /var/lib/apt/lists/*
 RUN npm install -g @anthropic-ai/claude-code@2.1.296 && npm cache clean --force
 RUN python -m venv /opt/venv
 RUN groupadd --gid 1000 agent \
