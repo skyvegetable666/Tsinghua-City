@@ -62,6 +62,16 @@ Process suspension, process restart, and runtime recovery are implementation eve
 
 The world-state service does not maintain a cognitive-life cycle or an `AgentLife` entity. Runtime records are operational metadata; they do not create, extend, or end the agent's survival.
 
+### 2.9 Reuse mature components
+
+If a maintained upstream component already solves a problem, use it through a thin adapter instead of rebuilding it.
+
+The project writes domain code for world state, the ledger, tasks, death, communication, and the minimum integration with external runtimes. It does not write its own agent loop, model gateway, MCP protocol, container runtime, lock service, or general event bus.
+
+Copying a design or a small piece of source is acceptable when the license and maintenance status permit it. Official SDKs and active upstream projects are preferred over local forks.
+
+The current reuse map and first-product scope are in `docs/FIRST_PRODUCT.md`.
+
 ## 3. System Responsibilities
 
 The platform has three primary responsibilities.

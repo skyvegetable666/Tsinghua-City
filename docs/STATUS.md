@@ -76,10 +76,13 @@ but not yet tester-verified. Current Postgres expectation is `37 passed`.
 
 A usable alpha demo needs:
 
-1. a reference MCP harness that reads inbox/tasks/board and acts;
-2. two-agent end-to-end demo with a persisted journal;
-3. Docker or OpenHands adapter for isolation;
-4. safe-point delivery;
-5. then Canvas and experiment configuration.
+1. real Claude Agent SDK harness (the deterministic harness is only a contract test);
+2. Docker sandbox and private workspace;
+3. run transcript and monitor log;
+4. model/prompt/secret run configuration;
+5. one real agent through one task, then two agents through a task cycle.
 
-Until step 1 exists, the system is infrastructure, not a runnable society.
+See [FIRST_PRODUCT.md](FIRST_PRODUCT.md) for the reuse map and exact P0 order.
+
+The current system has a working deterministic society demo and state
+infrastructure, but not a real-agent, sandboxed product.

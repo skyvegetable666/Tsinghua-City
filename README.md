@@ -8,6 +8,7 @@ This repository is currently an **alpha / single-node lab checkpoint**, not a pr
 - Current status: [docs/STATUS.md](docs/STATUS.md)
 - Testing guide: [docs/TESTING.md](docs/TESTING.md)
 - Architecture decisions: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
+- First product and reuse map: [docs/FIRST_PRODUCT.md](docs/FIRST_PRODUCT.md)
 - Milestone history: [docs/CHANGELOG.md](docs/CHANGELOG.md)
 
 - **Code checkpoint:** `9e4c066`
