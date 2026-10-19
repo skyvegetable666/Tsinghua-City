@@ -10,7 +10,7 @@ This is a compact milestone log; Git history remains authoritative.
 | `8aef2a9` | Public bulletin board; explicit 0001 baseline + 0002 |
 | `e260d35` | Task publication idempotency, maintenance scheduler, 0003 |
 | `2284fcc` | Phase 3 local runtime manager, token rotation, MCP config, logs, reconcile, 0004 |
-| `86a59c0` | Wake suspended runtime on unread messages |
+| `86a59c0` | Historical auto-resume on messages; removed by the no-wake policy |
 | `17af044` | Fix Postgres stale-lock double-spend; bypass loopback proxies in MCP tests/sidecar |
 | `260344e` | On-failure runtime restart with backoff, 0005 |
 | `9e4c066` | Terminate crashed runtime to cancel restart |

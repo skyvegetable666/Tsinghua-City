@@ -1,54 +1,27 @@
-# First-product Claude agent sandbox.
-# Build from the repository root:
-#   docker build -f deploy/agent.Dockerfile -t tsinghua-city-agent .
-#
-# The runtime adapter must mount a container-specific MCP config and a private
-# workspace. This image does not contain a host-generated config.
+# Reuses archive/genesis-lab/image/Dockerfile and the official Claude Code CLI.
+FROM node:22-bookworm-slim AS node
+FROM python:3.11-slim-bookworm
 
-FROM node:22-bookworm-slim
+COPY --from=node /usr/local/bin/node /usr/local/bin/node
+COPY --from=node /usr/local/lib/node_modules /usr/local/lib/node_modules
+RUN ln -s ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm
 
-ENV DEBIAN_FRONTEND=noninteractive \
-    PYTHONUNBUFFERED=1 \
-    PYTHONDONTWRITEBYTECODE=1 \
-    NPM_CONFIG_UPDATE_NOTIFIER=false \
-    HOME=/home/agent \
-    CITY_AGENT_WORKDIR=/workspace \
-    CITY_TRACE_DIR=/workspace/transcripts
+ENV DEBIAN_FRONTEND=noninteractive PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 \
+    NPM_CONFIG_UPDATE_NOTIFIER=false HOME=/work/home \
+    PATH=/opt/venv/bin:$PATH CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1 \
+    DISABLE_TELEMETRY=1 DISABLE_ERROR_REPORTING=1 \
+    CITY_AGENT_WORKDIR=/work CITY_TRACE_DIR=/work/transcripts CITY_TRACE_STDOUT=1
 
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends \
-        ca-certificates \
-        curl \
-        git \
-        jq \
-        procps \
-        python3 \
-        python3-pip \
-        python3-venv \
-        ripgrep \
-    && rm -rf /var/lib/apt/lists/*
-
-# Pin the agent runtime so an npm release cannot silently change experiments.
-RUN npm install -g @anthropic-ai/claude-code@2.1.296 \
-    && npm cache clean --force
-
-# The node base image already has uid 1000; replace it with our agent user.
-RUN userdel -r node 2>/dev/null; groupdel node 2>/dev/null; true \
-    && useradd --create-home --uid 1000 --shell /bin/bash agent
-
-WORKDIR /app
-COPY pyproject.toml README.md /app/
-COPY tsinghua_city /app/tsinghua_city
-RUN python3 -m venv /opt/venv \
-    && /opt/venv/bin/pip install --no-cache-dir /app
-
-ENV PATH="/opt/venv/bin:$PATH"
-
-RUN mkdir -p /workspace /workspace/transcripts \
-    && chown -R agent:agent /workspace \
-    && chmod -R a+rX /app
-
-USER agent
-WORKDIR /workspace
-
-ENTRYPOINT ["/opt/venv/bin/python", "-m", "tsinghua_city.claude_agent"]
+RUN npm install -g @anthropic-ai/claude-code@2.1.296 && npm cache clean --force
+RUN python -m venv /opt/venv
+RUN groupadd --gid 1000 agent \
+    && useradd --uid 1000 --gid 1000 --home-dir /work/home --no-create-home agent
+WORKDIR /opt/city
+COPY pyproject.toml README.md ./
+COPY tsinghua_city/ ./tsinghua_city/
+RUN pip install --no-cache-dir . \
+    && mkdir -p /work/home && chown -R 1000:1000 /work
+WORKDIR /work
+USER 1000:1000
+ENTRYPOINT ["python", "-m", "tsinghua_city.sandbox_entrypoint"]
+CMD ["python", "-m", "tsinghua_city.claude_agent"]

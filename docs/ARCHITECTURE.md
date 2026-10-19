@@ -124,7 +124,7 @@ group messaging, board moderation/editing.
 - ~~Public bulletin board: posts and replies.~~ (done)
 - ~~Task publication idempotency.~~ (done)
 - ~~In-process deadline/death maintenance.~~ (done; durable scheduler still pending)
-- ~~Wake suspended runtimes on unread inbox messages.~~ (done; safe-point injection pending)
+- Messages do not resume suspended runtimes; operator resume is explicit.
 - Inbox delivery notification for running harnesses.
 - Named external-employer budgets.
 - Experiment config/manifest.
@@ -136,7 +136,7 @@ group messaging, board moderation/editing.
   - ~~create/start/suspend/resume/terminate agent execution.~~ (local done)
   - ~~start a harness with generated MCP config and an agent token.~~ (done)
   - ~~report process health and exit events.~~ (reconcile done)
-  - ~~wake suspended runtimes when unread messages exist.~~ (done)
+  - no wake or rebirth; suspended runtimes resume only by operator request.
   - ~~on-failure restart with backoff and max attempts.~~ (done)
   - ~~terminate a crashed runtime to cancel restart.~~ (done)
 - Sandbox provider choice: OpenHands Agent Server, E2B, or Docker/K8s (next).

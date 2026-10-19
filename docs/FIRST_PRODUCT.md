@@ -114,20 +114,18 @@ The first product is successful when:
 - no deterministic policy is required for the demonstration
 - the same run can be inspected after the agent process exits
 
-## 6. Current blockers
+## 6. Sandbox implementation checkpoint
 
-- The initial harness port exists in `tsinghua_city/claude_harness.py` and
-  `tsinghua_city/claude_agent.py`; it passes fake-CLI tests but has not run
-  against a live authenticated model.
-- The sandbox image reference exists in `deploy/agent.Dockerfile`; the Docker
-  runtime adapter is not wired yet.
-- Docker Desktop is installed on the Windows host, but WSL integration is not
-  enabled, so the Docker CLI is unavailable inside this workspace.
-- The Claude Code CLI is installed and reports version 2.1.296. The archived
-  harness drives this CLI directly over stream-json, so the Python Agent SDK is
-  not required for the first port; model authentication still needs verification.
-- The current runtime has no safe secret or model-credential injection path.
-- The local runtime adapter is a development convenience, not a sandbox.
+The Docker/Claude Code path is implemented and verified on macOS Docker Desktop:
+private persistent workspaces, explicit credential injection, native CLI session
+resume, runtime transcripts, and a real two-agent task/settlement/life-extension
+cycle. See [SANDBOX.md](SANDBOX.md) for setup and [STATUS.md](STATUS.md) for evidence.
+
+The existing CLI is used directly, so a separate Agent SDK dependency is not
+required. No custom model loop or gateway is introduced. Other hosts still need
+a working Docker daemon (including WSL integration when applicable) and a
+Claude-compatible provider credential. The local adapter remains a development
+convenience rather than a sandbox.
 
 ## 7. Not in the first product
 

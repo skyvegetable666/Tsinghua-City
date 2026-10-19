@@ -1,9 +1,9 @@
-"""Agent runtime manager and local process adapter.
+"""Agent runtime manager with local process and Docker adapters.
 
 The logical agent is a database identity; a runtime is a replaceable execution
 process. This module owns process lifecycle only, never world state. The local
-adapter is useful for harness development and tests; a sandbox/container adapter
-implements the same interface in a deployed experiment.
+adapter is useful for harness development and tests; the Docker adapter uses
+the same lifecycle interface for isolated experiments.
 """
 
 from __future__ import annotations
@@ -23,7 +23,7 @@ from sqlalchemy.orm import Session
 
 from . import service
 from .config import Settings, iso, utcnow
-from .models import Agent, AgentRuntime, Message, World
+from .models import Agent, AgentRuntime, World
 
 RUNNING = "RUNNING"
 SUSPENDED = "SUSPENDED"
@@ -37,10 +37,10 @@ ACTIVE = {RUNNING, SUSPENDED}
 
 @dataclass
 class StartResult:
-    pid: int
-    pid_create_time: float
+    pid: int | None
+    pid_create_time: float | None
     log_path: str
-    mcp_config_path: str
+    mcp_config_path: str | None
 
 
 class LocalRuntimeAdapter:
@@ -191,6 +191,16 @@ class RuntimeManager:
             api_url=settings.api_url,
             log_dir=settings.runtime_log_dir,
         )
+        self._adapters = {"local": self.adapter}
+
+    def _adapter(self, name: str):
+        if name == "docker" and name not in self._adapters:
+            from .docker_runtime import DockerRuntimeAdapter
+
+            self._adapters[name] = DockerRuntimeAdapter(self.settings)
+        if name not in self._adapters:
+            raise service.DomainError(f"unsupported runtime adapter: {name}", 400)
+        return self._adapters[name]
 
     def get_runtime(self, session: Session, world: World, agent: Agent) -> AgentRuntime | None:
         return session.scalars(
@@ -236,10 +246,12 @@ class RuntimeManager:
         restart_policy: str | None = None,
         max_restarts: int | None = None,
         is_restart: bool = False,
+        adapter_name: str | None = None,
     ) -> AgentRuntime:
         service.require_alive(session, agent, world)
         if runtime is not None and runtime.status == RUNNING:
             raise service.DomainError("agent runtime is already running", 409)
+        adapter = self._adapter(adapter_name or (runtime.adapter if runtime else "local"))
         if restart_policy is not None and restart_policy not in {
             RESTART_NEVER,
             RESTART_ON_FAILURE,
@@ -251,7 +263,7 @@ class RuntimeManager:
         now = utcnow()
         runtime_id = runtime.id if runtime else "rt_" + uuid.uuid4().hex[:24]
         try:
-            started = self.adapter.start(
+            started = adapter.start(
                 runtime_id=runtime_id,
                 command=command,
                 agent_id=agent.id,
@@ -269,14 +281,14 @@ class RuntimeManager:
                 created_at=now,
                 updated_at=now,
                 command=command,
-                adapter=self.adapter.name,
+                adapter=adapter.name,
                 status=RUNNING,
                 restart_policy=restart_policy or RESTART_NEVER,
                 max_restarts=max_restarts if max_restarts is not None else 3,
                 restart_count=0,
             )
             session.add(runtime)
-        runtime.adapter = self.adapter.name
+        runtime.adapter = adapter.name
         runtime.command = list(command)
         if restart_policy is not None:
             runtime.restart_policy = restart_policy
@@ -305,6 +317,7 @@ class RuntimeManager:
             "runtime.restarted" if is_restart else "runtime.started",
             data={
                 "pid": started.pid,
+                "log_path": started.log_path,
                 "command": command,
                 "restart_count": runtime.restart_count,
             },
@@ -313,7 +326,7 @@ class RuntimeManager:
             session.commit()
         except Exception:
             session.rollback()
-            self.adapter.stop(runtime)
+            adapter.stop(runtime)
             raise
         session.refresh(runtime)
         return runtime
@@ -329,9 +342,10 @@ class RuntimeManager:
         restart_policy: str = RESTART_NEVER,
         max_restarts: int = 3,
     ) -> AgentRuntime:
-        if adapter != self.adapter.name:
-            raise service.DomainError(f"unsupported runtime adapter: {adapter}", 400)
+        self._adapter(adapter)
         runtime = self.get_runtime(session, world, agent)
+        if runtime and runtime.adapter != adapter and runtime.status != STOPPED:
+            raise service.DomainError("stop the runtime before changing adapters", 409)
         return self._start(
             session,
             world,
@@ -340,6 +354,7 @@ class RuntimeManager:
             runtime=runtime,
             restart_policy=restart_policy,
             max_restarts=max_restarts,
+            adapter_name=adapter,
         )
 
     def _stop(
@@ -356,7 +371,9 @@ class RuntimeManager:
             raise service.DomainError("runtime not found", 404)
         if runtime.status not in {RUNNING, SUSPENDED, CRASHED, LOST}:
             raise service.DomainError(f"runtime is not stoppable ({runtime.status})", 409)
-        exit_code = self.adapter.stop(runtime)
+        exit_code = self._adapter(runtime.adapter).stop(runtime)
+        if exit_code is None:
+            exit_code = runtime.exit_code
         service.rotate_agent_token(session, agent)
         runtime.next_restart_at = None
         runtime.status = status
@@ -413,6 +430,9 @@ class RuntimeManager:
         )
 
     def _mark_crashed(self, session: Session, runtime: AgentRuntime, reason: str) -> None:
+        # Remove stopped containers/networks and export logs before rotating credentials.
+        if runtime.adapter == "docker":
+            runtime.exit_code = self._adapter(runtime.adapter).stop(runtime)
         if runtime.mcp_config_path:
             Path(runtime.mcp_config_path).unlink(missing_ok=True)
             runtime.mcp_config_path = None
@@ -440,46 +460,11 @@ class RuntimeManager:
         runtime = self.get_runtime(session, world, agent)
         if runtime is None:
             raise service.DomainError("runtime not found", 404)
-        if runtime.status == RUNNING and not self.adapter.is_running(runtime):
+        if runtime.status == RUNNING and not self._adapter(runtime.adapter).is_running(runtime):
             self._mark_crashed(session, runtime, "process is not running")
             session.commit()
             session.refresh(runtime)
         return runtime
-
-    def wake_suspended(self, session: Session, world: World) -> int:
-        """Resume suspended runtimes that have unread inbox messages.
-
-        The process can then read the durable inbox through MCP. This is a wake
-        policy, not a forced injection into an active model call.
-        """
-        woken = 0
-        suspended = session.scalars(
-            select(AgentRuntime).where(
-                AgentRuntime.world_id == world.id,
-                AgentRuntime.status == SUSPENDED,
-            )
-        ).all()
-        for runtime in suspended:
-            has_unread = session.scalar(
-                select(Message.id)
-                .where(
-                    Message.recipient_agent_id == runtime.agent_id,
-                    Message.read_at.is_(None),
-                )
-                .limit(1)
-            )
-            if has_unread is None:
-                continue
-            agent = session.get(Agent, runtime.agent_id)
-            if agent is None:
-                continue
-            try:
-                self.resume(session, world, agent)
-                woken += 1
-            except service.DomainError:
-                session.rollback()
-                continue
-        return woken
 
     def poll_running(self, session: Session, world: World) -> int:
         changed = 0
@@ -490,7 +475,7 @@ class RuntimeManager:
             )
         ).all()
         for runtime in runtimes:
-            if not self.adapter.is_running(runtime):
+            if not self._adapter(runtime.adapter).is_running(runtime):
                 self._mark_crashed(session, runtime, "process is not running")
                 changed += 1
         if changed:
@@ -542,7 +527,7 @@ class RuntimeManager:
                 select(AgentRuntime).where(AgentRuntime.status == RUNNING)
             ).all()
             for runtime in runtimes:
-                if not self.adapter.is_running(runtime):
+                if not self._adapter(runtime.adapter).is_running(runtime):
                     self._mark_crashed(session, runtime, "lost on manager restart")
                     changed += 1
             if changed:

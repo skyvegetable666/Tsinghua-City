@@ -47,3 +47,9 @@ async def test_harness_with_fake_cli(tmp_path):
     assert str(mcp) in command
     assert "--strict-mcp-config" in command
     assert "--settings" not in command
+    assert "--max-turns" in command
+    assert "--tools" in command
+    harness.resume_session = "existing-session"
+    resumed = harness._command()
+    assert resumed[resumed.index("--resume") + 1] == "existing-session"
+    assert "--session-id" not in resumed
