@@ -20,6 +20,7 @@ from sqlalchemy.orm import Session
 
 from . import service
 from .auth import admin_matches, extract_bearer
+from .claude_agent import build_launch_command
 from .config import Settings, load_settings
 from .db import init_db, make_engine, make_session_factory
 from .models import Agent, World
@@ -30,6 +31,7 @@ from .schemas import (
     AgentCreated,
     AgentOut,
     BalanceOut,
+    ClaudeRunCreate,
     EventOut,
     ExtendLifeRequest,
     HealthOut,
@@ -411,6 +413,35 @@ def create_app(
             return json.loads(path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError) as exc:
             raise HTTPException(status_code=500, detail="manifest is unreadable") from exc
+
+    @app.post(
+        "/v1/worlds/{world_id}/agents/{agent_id}/claude/start",
+        response_model=RuntimeOut,
+    )
+    def start_claude_run(
+        world_id: str,
+        agent_id: str,
+        body: ClaudeRunCreate,
+        _admin: None = Depends(require_admin),
+        session: Session = Depends(get_db),
+    ) -> dict[str, Any]:
+        world, agent = runtime_subject(world_id, agent_id, session)
+        command = build_launch_command(
+            body.adapter,
+            prompt=body.prompt,
+            model=body.model,
+            max_turns=body.max_turns,
+        )
+        runtime = runtime_manager.start(
+            session,
+            world,
+            agent,
+            command=command,
+            adapter=body.adapter,
+            restart_policy=body.restart_policy,
+            max_restarts=body.max_restarts,
+        )
+        return runtime_manager.view(runtime)
 
     @app.get(
         "/v1/worlds/{world_id}/agents/{agent_id}/runtime",

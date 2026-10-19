@@ -78,6 +78,29 @@ def _read_prompt(args: argparse.Namespace, name: str, agent_id: str, world_id: s
     return build_prompt(name, agent_id, world_id)
 
 
+def build_launch_command(
+    adapter: str,
+    *,
+    prompt: str | None = None,
+    model: str | None = None,
+    max_turns: int = 30,
+) -> list[str]:
+    """Build the argv used by the admin launch endpoint.
+
+    Docker already has the package in /opt/venv, so it uses the image python;
+    the local adapter must use the server interpreter.
+    """
+    if adapter not in {"local", "docker"}:
+        raise ValueError("adapter must be local or docker")
+    python = sys.executable if adapter == "local" else "python"
+    command = [python, "-m", "tsinghua_city.claude_agent", "--max-turns", str(max_turns)]
+    if prompt:
+        command.extend(["--prompt", prompt])
+    if model:
+        command.extend(["--model", model])
+    return command
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="tsinghua-city-claude-agent")
     parser.add_argument("--mcp-config", default=os.environ.get("CITY_MCP_CONFIG"))

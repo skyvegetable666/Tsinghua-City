@@ -26,7 +26,8 @@ This is a compact milestone log; Git history remains authoritative.
 - Docker sandbox image reference in `deploy/`
 - read-only /traces viewer for JSONL run traces
 - secret-free per-runtime experiment manifests
-- local count: 49 passed / 6 skipped without Docker; 53 passed / 2 skipped with Docker
+- admin Claude run launch/stop and Canvas controls
+- local count: 50 passed / 6 skipped without Docker; 54 passed / 2 skipped with Docker
 
 ## Verification snapshots
 

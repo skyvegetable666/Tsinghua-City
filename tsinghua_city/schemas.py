@@ -176,6 +176,15 @@ class TaskOut(BaseModel):
     closed_at: str | None
 
 
+class ClaudeRunCreate(BaseModel):
+    adapter: str = Field(default="local", pattern="^(local|docker)$")
+    model: str | None = Field(default=None, max_length=128)
+    prompt: str | None = Field(default=None, max_length=20_000)
+    max_turns: int = Field(default=30, ge=1, le=200)
+    restart_policy: str = Field(default="never", pattern="^(never|on_failure)$")
+    max_restarts: int = Field(default=3, ge=0, le=20)
+
+
 class RuntimeStart(BaseModel):
     command: list[str] = Field(min_length=1)
     adapter: str = Field(default="local", max_length=32)

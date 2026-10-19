@@ -2,10 +2,23 @@ from __future__ import annotations
 
 import json
 import stat
+import sys
 
 import pytest
 
-from tsinghua_city.claude_agent import _run, build_parser
+from tsinghua_city.claude_agent import _run, build_launch_command, build_parser
+
+
+def test_launch_command_respects_adapter_and_flags():
+    local = build_launch_command("local", prompt="hello", model="m", max_turns=7)
+    assert local[0] == sys.executable
+    assert "--max-turns" in local and "7" in local
+    assert "--prompt" in local and "hello" in local
+    assert "--model" in local and "m" in local
+
+    docker = build_launch_command("docker", prompt="hello")
+    assert docker[0] == "python"
+    assert docker[1:4] == ["-m", "tsinghua_city.claude_agent", "--max-turns"]
 
 
 async def test_agent_entrypoint_writes_trace(tmp_path):

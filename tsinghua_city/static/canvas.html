@@ -111,6 +111,11 @@
   .opmsg .text { color:#c8c8c8; font-size:12.5px; white-space:pre-wrap; }
   #operatorInput { width:100%; min-height:58px; resize:vertical; background:var(--bg); color:var(--text);
                    border:1px solid var(--border); border-radius:6px; padding:7px; font:12px var(--mono); }
+  .runform { display:grid; gap:7px; }
+  .runform .row2 { display:flex; gap:7px; flex-wrap:wrap; }
+  .runform .row2 > * { flex:1; min-width:110px; }
+  #runPrompt { width:100%; min-height:72px; resize:vertical; background:var(--bg); color:var(--text);
+               border:1px solid var(--border); border-radius:6px; padding:7px; font:12px var(--mono); }
   .post { border-bottom:1px solid var(--border); padding:9px 0; }
   .post:last-child { border-bottom:0; }
   .post-title { font-weight:600; }
@@ -586,12 +591,48 @@
       '<div class="item"><div class="k">runtime</div><div class="v">' +
         (runtime ? '<span class="pill ' + esc(runtime.status) + '">' + esc(runtime.status) + '</span> pid ' + esc(runtime.pid || '—') : 'none') +
       '</div></div></div></div>' +
+      '<div class="msg"><div class="hd"><span class="kind">claude run</span></div><div class="bd">' +
+      '<div class="runform">' +
+      '<div class="row2"><select id="runAdapter"><option value="local">local</option><option value="docker">docker</option></select>' +
+      '<input id="runModel" placeholder="model (optional)">' +
+      '<input id="runTurns" type="number" min="1" max="200" value="30" title="max turns"></div>' +
+      '<textarea id="runPrompt" placeholder="prompt (optional; defaults to the autonomous agent prompt)"></textarea>' +
+      '<div style="text-align:right"><button onclick="startClaudeRun()">Start Claude run</button> ' +
+      '<button onclick="stopAgentRuntime()">Stop runtime</button></div>' +
+      '</div></div></div>' +
       '<div class="msg"><div class="hd"><span class="kind">operator channel</span></div>' +
       '<div class="bd">' + operatorHtml() + '<textarea id="operatorInput" placeholder="message this agent as the operator"></textarea>' +
       '<div style="margin-top:7px;text-align:right"><button onclick="sendOperatorMessage()">Send</button></div>' +
       '</div></div>' +
       '<div class="msg task"><div class="hd"><span class="kind">tasks involving ' + esc(agent.name) + '</span></div>' +
       '<div class="bd">' + taskRows(ownTasks) + '</div></div>';
+  }
+  async function startClaudeRun() {
+    if (!state.worldId || !state.selectedAgent) return;
+    var adapter = $('runAdapter').value;
+    var model = $('runModel').value.trim();
+    var prompt = $('runPrompt').value.trim();
+    var turns = parseInt($('runTurns').value, 10) || 30;
+    var body = {adapter: adapter, max_turns: turns, restart_policy: 'never'};
+    if (model) body.model = model;
+    if (prompt) body.prompt = prompt;
+    try {
+      await api('/v1/worlds/' + state.worldId + '/agents/' + state.selectedAgent + '/claude/start', {
+        method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)
+      });
+      await loadWorld();
+      toast('Claude run started');
+    } catch (err) { showError(err.message); }
+  }
+  async function stopAgentRuntime() {
+    if (!state.worldId || !state.selectedAgent) return;
+    try {
+      await api('/v1/worlds/' + state.worldId + '/agents/' + state.selectedAgent + '/runtime/stop', {
+        method: 'POST'
+      });
+      await loadWorld();
+      toast('Runtime stopped');
+    } catch (err) { showError(err.message); }
   }
   function operatorHtml() {
     if (!state.operatorMessages.length) {

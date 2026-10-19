@@ -31,6 +31,7 @@ real two-agent task cycle. This remains a single-machine research alpha.
 | Local runtime manager | start/stop/suspend/resume/terminate/reconcile |
 | Docker sandbox | non-root, private per-agent and shared per-world workspaces, isolated networks, read-only root, resource limits |
 | Claude Code harness | official CLI, existing MCP, bounded turns, native session resume |
+| Run launch | admin Claude start/stop endpoint and Canvas controls |
 | Sandbox transcripts | stdout/stderr export per launch, paths in lifecycle events |
 | Runtime recovery | process-loss mark, on-failure restart, terminate crashed |
 | Reference harness | deterministic MCP policy + two-agent demo + JSONL journals |
@@ -48,7 +49,7 @@ real two-agent task cycle. This remains a single-machine research alpha.
 Local checkpoint with real Docker integration enabled:
 
 ~~~text
-53 passed, 2 skipped
+54 passed, 2 skipped
 ~~~
 
 The skipped tests are Postgres-only concurrency checks. The two-agent reference
