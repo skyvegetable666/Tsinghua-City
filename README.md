@@ -13,7 +13,7 @@ This repository is currently an **alpha / single-node lab checkpoint**, not a pr
 - Third-party notices: [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)
 
 - **Code checkpoint:** `9e4c066`
-- **Local test result:** `38 passed, 2 skipped`
+- **Local test result:** `39 passed, 2 skipped`
 - **Old prototype:** frozen under `archive/genesis-lab/` (zero runtime imports)
 
 ---
@@ -266,7 +266,7 @@ Tsinghua-City/
 
 ~~~bash
 pytest -q
-# local checkpoint: 38 passed, 2 skipped
+# local checkpoint: 39 passed, 2 skipped
 ~~~
 
 The two skips are Postgres-only concurrency tests.
@@ -277,7 +277,7 @@ With a disposable Postgres:
 pip install -e '.[dev,postgres]'
 export CITY_TEST_DATABASE_URL=postgresql+psycopg://.../city_test
 pytest -q
-# expected at this checkpoint: 40 passed
+# expected at this checkpoint: 41 passed
 ~~~
 
 Windows testers with a system proxy should read [docs/TESTING.md](docs/TESTING.md). The loopback test client and MCP sidecar bypass WinINET proxies, but external harnesses may still need `NO_PROXY`.

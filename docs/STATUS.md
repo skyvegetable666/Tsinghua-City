@@ -40,7 +40,7 @@ Tsinghua City now has an authoritative world-state service, MCP capabilities, a 
 Local checkpoint:
 
 ~~~text
-38 passed, 2 skipped
+39 passed, 2 skipped
 ~~~
 
 The skipped tests are Postgres-only concurrency checks. The two-agent reference
@@ -64,7 +64,7 @@ locally.
 MCP list-content decoding tests, an early Canvas, a Claude Code harness port,
 and a Docker runtime adapter with fake-CLI/fake-Docker tests. These are
 local-verified but not yet tester-verified. Current Postgres expectation is
-`40 passed`.
+`41 passed`.
 
 ## Known gaps
 

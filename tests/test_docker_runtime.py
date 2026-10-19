@@ -6,6 +6,11 @@ import stat
 from pathlib import Path
 from types import SimpleNamespace
 
+from fastapi.testclient import TestClient
+
+from tsinghua_city.api import create_app
+from tsinghua_city.config import Settings
+from tsinghua_city.db import make_engine
 from tsinghua_city.docker_runtime import DockerRuntimeAdapter
 
 
@@ -71,3 +76,40 @@ def test_docker_adapter_builds_container_without_host_secrets(tmp_path, monkeypa
     assert adapter.is_running(runtime) is True
     assert adapter.stop(runtime) == 0
     assert not os.path.exists(started.mcp_config_path)
+
+
+def test_runtime_manager_selects_docker_adapter(tmp_path, monkeypatch):
+    state = tmp_path / "manager-calls.jsonl"
+    monkeypatch.setenv("FAKE_DOCKER_STATE", str(state))
+    settings = Settings(
+        database_url=f"sqlite:///{tmp_path / 'city.db'}",
+        admin_token="admin-token",
+        scheduler_enabled=False,
+        runtime_log_dir=str(tmp_path / "logs"),
+        docker_bin=str(_fake_docker(tmp_path)),
+        agent_image="tsinghua-city-agent:test",
+    )
+    app = create_app(settings, engine=make_engine(settings.database_url))
+    with TestClient(app) as client:
+        admin = {"Authorization": "Bearer admin-token"}
+        world = client.post("/v1/worlds", headers=admin, json={"name": "docker"}).json()
+        agent = client.post(
+            f"/v1/worlds/{world['id']}/agents", headers=admin, json={"name": "alice"}
+        ).json()
+        base = f"/v1/worlds/{world['id']}/agents/{agent['id']}/runtime"
+        started = client.post(
+            base + "/start",
+            headers=admin,
+            json={
+                "adapter": "docker",
+                "command": ["/opt/venv/bin/python", "-m", "tsinghua_city.claude_agent"],
+            },
+        )
+        assert started.status_code == 200, started.text
+        runtime = started.json()
+        assert runtime["adapter"] == "docker"
+        assert runtime["status"] == "RUNNING"
+        assert client.get(base, headers=admin).json()["status"] == "RUNNING"
+        stopped = client.post(base + "/stop", headers=admin)
+        assert stopped.status_code == 200, stopped.text
+        assert stopped.json()["status"] == "STOPPED"
