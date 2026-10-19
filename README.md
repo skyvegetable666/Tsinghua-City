@@ -60,6 +60,7 @@ inside Docker, including payment, life extension, and session resume.
 - trace viewer at `/traces`: per-agent JSONL run traces
 - contract-checked Claude launch endpoint and Canvas start/stop controls
 - `tsinghua-city doctor` host readiness checks
+- `scripts/docker_image_smoke.sh` image build and sandbox smoke
 - secret-free runtime manifests under `runs/manifests`
 
 ### Interfaces

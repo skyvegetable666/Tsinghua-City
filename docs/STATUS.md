@@ -29,7 +29,8 @@ real two-agent task cycle. This remains a single-machine research alpha.
 | Alembic | 0001 through 0005 |
 | Maintenance scheduler | deadlines, terminal death, crash detection, restart |
 | Local runtime manager | start/stop/suspend/resume/terminate/reconcile |
-| Docker sandbox | non-root, private per-agent and shared per-world workspaces, isolated networks, read-only root, resource limits |
+| Docker sandbox | non-root, private per-agent and shared per-world workspaces, isolated networks, read-only root, resource limits; image smoke verified |
+| Image smoke | Docker Desktop Windows: non-root 1000, writable /work and /shared, flock, Claude Code 2.1.296, Python import |
 | Claude Code harness | official CLI, existing MCP, bounded turns, native session resume |
 | Run launch | admin Claude start/stop endpoint and Canvas controls |
 | Doctor | database, directories, Docker daemon/image, Claude CLI/credentials |
