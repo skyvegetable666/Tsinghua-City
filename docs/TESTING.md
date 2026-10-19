@@ -1,8 +1,8 @@
 # Testing guide
 
 - **Code checkpoint:** `9e4c066`
-- **Default expectation:** `66 passed, 9 skipped` (seven Docker + two Postgres checks)
-- **With Docker:** `73 passed, 2 skipped`
+- **Default expectation:** `69 passed, 9 skipped` (seven Docker + two Postgres checks)
+- **With Docker:** `76 passed, 2 skipped`
 
 ## 1. Local setup
 
@@ -57,7 +57,7 @@ Use a **disposable** database. The fixture drops and recreates tables.
 pip install -e '.[dev,postgres]'
 export CITY_TEST_DATABASE_URL=postgresql+psycopg://postgres:city@127.0.0.1:5432/city_test
 pytest -q
-# expected without Docker: 68 passed, 7 skipped
+# expected without Docker: 71 passed, 7 skipped
 
 pytest -q tests/test_postgres_concurrency.py -vv
 # both tests must pass; one transfer is 409, the other ok
@@ -106,20 +106,35 @@ replies, failed-reply retention, CLI budget arguments, native limit results, and
 wall-time exhaustion. `tests/test_experiments.py` checks manifest validation,
 batch start/stop, private condition archives, and partial-launch cleanup.
 
-## 5. Trace viewer
+## 5. Operator channel
+
+~~~bash
+pytest -q tests/test_operator.py
+# 2 passed
+~~~
+
+Admin sends through
+`POST /v1/worlds/{world}/agents/{agent}/operator/messages`.
+Agents read with `GET /v1/me/operator/messages`, reply with
+`POST /v1/me/operator/messages`, and mark read with
+`POST /v1/me/operator/messages/read`. MCP exposes
+`get_operator_messages`, `talk_to_operator`, and
+`mark_operator_messages_read`.
+
+## 6. Trace viewer
 
 ~~~bash
 pytest -q tests/test_traces.py
-# 2 passed
+# 3 passed
 ~~~
 
 The server lists JSONL files under `CITY_TRACE_DIR` (default
 `runs/transcripts`) and serves them at `/traces`. The viewer is read-only and
-uses the admin token. Docker agent traces live under the container's
-`/work/transcripts`; use the Docker log export until a host-side trace export
-is added.
+uses the admin token. Docker stop/crash cleanup copies the container's
+`/work/transcripts/*.jsonl` into the host trace directory. Structured stdout is
+also exported as a per-launch live snapshot during maintenance polls.
 
-## 6. Canvas smoke
+## 7. Canvas smoke
 
 Open `http://127.0.0.1:8000/canvas` or:
 
@@ -131,7 +146,7 @@ pytest -q tests/test_canvas.py
 Enter the admin token, select a world, and verify agents/tasks/posts/events/runtime
 statuses render. The Canvas is an admin monitor; it does not expose agent tokens.
 
-## 7. MCP protocol
+## 8. MCP protocol
 
 ~~~powershell
 pytest -q tests/test_mcp_protocol.py -s
@@ -139,7 +154,7 @@ pytest -q tests/test_mcp_protocol.py -s
 
 This starts a live World API and a real `python -m tsinghua_city mcp` stdio process, then checks `tools/list` and `tools/call`.
 
-## 8. Runtime manual acceptance
+## 9. Runtime manual acceptance
 
 Create a world and at least two agents.
 
@@ -170,13 +185,13 @@ Check:
 
 If `serve` is running, its scheduler may restart crashed processes before manual `tick`. For deterministic manual tests, stop the server or set `CITY_SCHEDULER_ENABLED=0`.
 
-## 9. Migration checks
+## 10. Migration checks
 
 Fresh database:
 
 ~~~bash
 tsinghua-city init
-# alembic_version = 0005_runtime_restart
+# alembic_version = 0006_operator_messages
 ~~~
 
 Incremental upgrade from an older checkpoint:
@@ -189,7 +204,7 @@ tsinghua-city upgrade
 
 Current tables include: worlds, agents, accounts, ledger transactions/entries, messages, tasks, posts, post_replies, agent_runtimes, events.
 
-## 10. API smoke
+## 11. API smoke
 
 Start:
 
@@ -206,7 +221,7 @@ Useful manual flows:
 - start/suspend/resume/stop a runtime
 - inspect events with admin token
 
-## 11. Reporting
+## 12. Reporting
 
 Include:
 

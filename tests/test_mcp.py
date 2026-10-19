@@ -22,6 +22,9 @@ def test_tools_delegate_to_world_api(monkeypatch):
     assert mcp_server.transfer_credits("bob", 2) == {"ok": True}
     assert mcp_server.send_message("bob", "hi") == {"ok": True}
     assert mcp_server.mark_messages_read(["m1"]) == {"ok": True}
+    assert mcp_server.get_operator_messages(limit=3) == {"ok": True}
+    assert mcp_server.talk_to_operator("hello") == {"ok": True}
+    assert mcp_server.mark_operator_messages_read(["op1"]) == {"ok": True}
     assert mcp_server.list_agents() == {"ok": True}
     assert mcp_server.get_inbox(unread_only=True, limit=5) == {"ok": True}
     assert mcp_server.list_posts(limit=5) == {"ok": True}
@@ -45,6 +48,9 @@ def test_tools_delegate_to_world_api(monkeypatch):
         ("POST", "/v1/me/transfer", {"to": "bob", "amount": 2}),
         ("POST", "/v1/me/messages", {"to": "bob", "body": "hi"}),
         ("POST", "/v1/me/messages/read", {"message_ids": ["m1"]}),
+        ("GET", "/v1/me/operator/messages?limit=3", None),
+        ("POST", "/v1/me/operator/messages", {"body": "hello"}),
+        ("POST", "/v1/me/operator/messages/read", {"message_ids": ["op1"]}),
         ("GET", "/v1/me/agents", None),
         ("GET", "/v1/me/messages?unread_only=true&limit=5", None),
         ("GET", "/v1/me/posts?limit=5", None),

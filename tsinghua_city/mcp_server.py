@@ -135,6 +135,24 @@ def mark_messages_read(message_ids: list[str]) -> dict[str, Any]:
 
 
 @mcp.tool()
+def get_operator_messages(limit: int = 50) -> list[dict[str, Any]]:
+    """Read messages from the human operator, oldest first."""
+    return _request("GET", f"/v1/me/operator/messages?limit={int(limit)}")
+
+
+@mcp.tool()
+def talk_to_operator(body: str) -> dict[str, Any]:
+    """Send a message to the human operator."""
+    return _request("POST", "/v1/me/operator/messages", {"body": body})
+
+
+@mcp.tool()
+def mark_operator_messages_read(message_ids: list[str]) -> dict[str, Any]:
+    """Mark operator messages as delivered and read."""
+    return _request("POST", "/v1/me/operator/messages/read", {"message_ids": message_ids})
+
+
+@mcp.tool()
 def list_agents() -> list[dict[str, Any]]:
     """List the other agents in your world with their public state."""
     return _request("GET", "/v1/me/agents")

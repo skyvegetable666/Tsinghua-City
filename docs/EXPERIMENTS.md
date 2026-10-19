@@ -76,6 +76,8 @@ structured stdout events to the host trace directory during maintenance polls
 and stop, while keeping raw stdout/stderr in the runtime log. Each launch has its
 own trace file. `/v1/traces` accepts world, agent, run, and experiment ID filters;
 trace reads support `offset` and `limit`. The viewer supports refresh and paging.
+Upstream's full `/work/transcripts` copy on stop is retained alongside these
+per-launch stdout snapshots, so full transcript archives remain available too.
 
 Death is terminal. Messages never start or resume stopped/suspended runtimes.
 There are no mandatory notes, memory injections, wake events, or rebirth.

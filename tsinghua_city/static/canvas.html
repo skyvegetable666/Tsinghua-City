@@ -104,6 +104,13 @@
   .pill.RUNNING,.pill.OPEN,.pill.COMPLETED,.pill.alive { color:var(--ok); border-color:#3d5638; }
   .pill.SUSPENDED,.pill.CLAIMED,.pill.SUBMITTED { color:var(--user); border-color:#5c4a2a; }
   .pill.CRASHED,.pill.FAILED,.pill.CANCELLED,.pill.STOPPED,.pill.dead { color:var(--warn); border-color:#5e2d2d; }
+  .opmsg { border-bottom:1px solid var(--border); padding:8px 0; }
+  .opmsg:last-child { border-bottom:0; }
+  .opmsg .who { color:var(--faint); font-size:10.5px; text-transform:uppercase; letter-spacing:.05em; }
+  .opmsg .who.operator { color:var(--user); }
+  .opmsg .text { color:#c8c8c8; font-size:12.5px; white-space:pre-wrap; }
+  #operatorInput { width:100%; min-height:58px; resize:vertical; background:var(--bg); color:var(--text);
+                   border:1px solid var(--border); border-radius:6px; padding:7px; font:12px var(--mono); }
   .post { border-bottom:1px solid var(--border); padding:9px 0; }
   .post:last-child { border-bottom:0; }
   .post-title { font-weight:600; }
@@ -205,6 +212,7 @@
     tasks: [],
     posts: [],
     events: [],
+    operatorMessages: [],
     selectedAgent: '',
     tab: 'overview',
     timer: null,
@@ -363,9 +371,37 @@
     if (state.selectedAgent && !state.agents.some(function (a) { return a.id === state.selectedAgent; })) {
       state.selectedAgent = '';
     }
+    if (state.selectedAgent) {
+      await loadOperatorMessages();
+    }
     renderWorldSelect();
     renderRail();
     renderMain();
+  }
+  async function loadOperatorMessages() {
+    if (!state.worldId || !state.selectedAgent) { state.operatorMessages = []; return; }
+    try {
+      state.operatorMessages = await api(
+        '/v1/worlds/' + state.worldId + '/agents/' + state.selectedAgent + '/operator/messages?limit=100'
+      );
+    } catch (err) {
+      state.operatorMessages = [];
+    }
+  }
+  async function sendOperatorMessage() {
+    var input = $('operatorInput');
+    if (!input) return;
+    var body = input.value.trim();
+    if (!body || !state.worldId || !state.selectedAgent) return;
+    try {
+      await api('/v1/worlds/' + state.worldId + '/agents/' + state.selectedAgent + '/operator/messages', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({body: body})
+      });
+      input.value = '';
+      await loadOperatorMessages();
+      renderMain();
+    } catch (err) { showError(err.message); }
   }
   function selectWorld(id) { state.worldId = id; state.selectedAgent = ''; refresh(); }
   function selectAgent(id) {
@@ -374,11 +410,13 @@
     renderTabs();
     renderRail();
     renderMain();
+    loadOperatorMessages().then(renderMain);
   }
   function setTab(tab) {
     state.tab = tab;
     renderTabs();
     renderMain();
+    if (tab === 'agent' && state.selectedAgent) loadOperatorMessages().then(renderMain);
   }
 
   /* ---------- render ---------- */
@@ -552,8 +590,24 @@
       '<div class="item"><div class="k">runtime</div><div class="v">' +
         (runtime ? '<span class="pill ' + esc(runtime.status) + '">' + esc(runtime.status) + '</span> pid ' + esc(runtime.pid || '—') : 'none') +
       '</div></div></div></div>' +
+      '<div class="msg"><div class="hd"><span class="kind">operator channel</span></div>' +
+      '<div class="bd">' + operatorHtml() + '<textarea id="operatorInput" placeholder="message this agent as the operator"></textarea>' +
+      '<div style="margin-top:7px;text-align:right"><button onclick="sendOperatorMessage()">Send</button></div>' +
+      '</div></div>' +
       '<div class="msg task"><div class="hd"><span class="kind">tasks involving ' + esc(agent.name) + '</span></div>' +
       '<div class="bd">' + taskRows(ownTasks) + '</div></div>';
+  }
+  function operatorHtml() {
+    if (!state.operatorMessages.length) {
+      return '<div class="empty">No operator messages yet. The agent may reply through talk_to_operator.</div>';
+    }
+    var html = '';
+    state.operatorMessages.forEach(function (message) {
+      html += '<div class="opmsg"><div class="who ' + (message.sender === 'operator' ? 'operator' : '') + '">' +
+        esc(message.sender) + ' · ' + esc(fmt(message.created_at)) + '</div>' +
+        '<div class="text">' + esc(message.body) + '</div></div>';
+    });
+    return html;
   }
   function taskRows(tasks) {
     if (!tasks.length) return '<div class="empty">No tasks yet.</div>';

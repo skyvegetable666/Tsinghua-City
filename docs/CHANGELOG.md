@@ -10,7 +10,7 @@ This is a compact milestone log; Git history remains authoritative.
 - Versioned experiment manifests provide batch start/stop and condition archives.
 - Existing Claude Code supports bounded message-driven user turns and native
   budget limits; suspended runtimes still require explicit operator resume.
-- Validation: 73 passed / 2 Postgres-only skipped, including seven real Docker checks.
+- Validation: 76 passed / 2 Postgres-only skipped, including seven real Docker checks.
 
 | Commit | Milestone |
 | --- | --- |
@@ -35,7 +35,7 @@ This is a compact milestone log; Git history remains authoritative.
 - Claude Code stream-json harness port and `tsinghua-city-agent` entrypoint
 - Docker sandbox image reference in `deploy/`
 - read-only /traces viewer for JSONL run traces
-- local count: 45 passed / 6 skipped without Docker; 49 passed / 2 skipped with Docker
+- local count: 48 passed / 6 skipped without Docker; 52 passed / 2 skipped with Docker
 
 ## Verification snapshots
 

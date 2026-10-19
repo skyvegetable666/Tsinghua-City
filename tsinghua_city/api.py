@@ -36,6 +36,9 @@ from .schemas import (
     MarkReadRequest,
     MessageCreate,
     MessageOut,
+    OperatorMessageCreate,
+    OperatorMessageOut,
+    OperatorReadRequest,
     PostCreate,
     PostDetailOut,
     PostOut,
@@ -365,6 +368,39 @@ def create_app(
         return world, agent
 
     @app.get(
+        "/v1/worlds/{world_id}/agents/{agent_id}/operator/messages",
+        response_model=list[OperatorMessageOut],
+    )
+    def admin_list_operator_messages(
+        world_id: str,
+        agent_id: str,
+        limit: int = Query(default=100, ge=1, le=500),
+        _admin: None = Depends(require_admin),
+        session: Session = Depends(get_db),
+    ) -> list[dict[str, Any]]:
+        _world, agent = runtime_subject(world_id, agent_id, session)
+        return [
+            service.operator_message_view(message)
+            for message in service.list_operator_messages(session, agent, limit=limit)
+        ]
+
+    @app.post(
+        "/v1/worlds/{world_id}/agents/{agent_id}/operator/messages",
+        response_model=OperatorMessageOut,
+        status_code=201,
+    )
+    def admin_send_operator_message(
+        world_id: str,
+        agent_id: str,
+        body: OperatorMessageCreate,
+        _admin: None = Depends(require_admin),
+        session: Session = Depends(get_db),
+    ) -> dict[str, Any]:
+        world, agent = runtime_subject(world_id, agent_id, session)
+        message = service.send_operator_message(session, world, agent, body.body)
+        return service.operator_message_view(message)
+
+    @app.get(
         "/v1/worlds/{world_id}/agents/{agent_id}/runtime",
         response_model=RuntimeOut,
     )
@@ -654,6 +690,42 @@ def create_app(
         auth: AgentAuth = Depends(require_agent),
     ) -> dict[str, Any]:
         changed = service.mark_read(auth.session, auth.agent, body.message_ids)
+        return {"ok": True, "changed": changed}
+
+    @app.get("/v1/me/operator/messages", response_model=list[OperatorMessageOut])
+    def get_operator_messages(
+        limit: int = Query(default=50, ge=1, le=200),
+        auth: AgentAuth = Depends(require_agent),
+    ) -> list[dict[str, Any]]:
+        return [
+            service.operator_message_view(message)
+            for message in service.list_operator_messages(
+                auth.session, auth.agent, limit=limit, from_operator=True
+            )
+        ]
+
+    @app.post(
+        "/v1/me/operator/messages",
+        response_model=OperatorMessageOut,
+        status_code=201,
+    )
+    def reply_to_operator(
+        body: OperatorMessageCreate,
+        auth: AgentAuth = Depends(require_agent),
+    ) -> dict[str, Any]:
+        message = service.send_agent_operator_message(
+            auth.session, auth.world, auth.agent, body.body
+        )
+        return service.operator_message_view(message)
+
+    @app.post("/v1/me/operator/messages/read")
+    def mark_operator_read(
+        body: OperatorReadRequest,
+        auth: AgentAuth = Depends(require_agent),
+    ) -> dict[str, Any]:
+        changed = service.mark_operator_messages_read(
+            auth.session, auth.agent, body.message_ids
+        )
         return {"ok": True, "changed": changed}
 
     @app.get("/v1/me/posts", response_model=list[PostOut])
