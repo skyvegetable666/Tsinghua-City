@@ -139,6 +139,27 @@ class Message(Base):
     read_at: Mapped[float | None] = mapped_column(Float, nullable=True)
 
 
+class OperatorMessage(Base):
+    __tablename__ = "operator_messages"
+    __table_args__ = (
+        Index("ix_operator_messages_agent_created", "agent_id", "created_at"),
+        Index("ix_operator_messages_world_created", "world_id", "created_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    world_id: Mapped[str] = mapped_column(
+        ForeignKey("worlds.id", ondelete="CASCADE"), nullable=False
+    )
+    agent_id: Mapped[str] = mapped_column(
+        ForeignKey("agents.id", ondelete="CASCADE"), nullable=False
+    )
+    sender: Mapped[str] = mapped_column(String(16), nullable=False)  # operator | agent
+    body: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[float] = mapped_column(Float, nullable=False)
+    delivered_at: Mapped[float | None] = mapped_column(Float, nullable=True)
+    read_at: Mapped[float | None] = mapped_column(Float, nullable=True)
+
+
 class Task(Base):
     __tablename__ = "tasks"
     __table_args__ = (

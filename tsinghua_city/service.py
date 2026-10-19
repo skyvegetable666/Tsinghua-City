@@ -25,6 +25,7 @@ from .models import (
     LedgerEntry,
     LedgerTransaction,
     Message,
+    OperatorMessage,
     Post,
     PostReply,
     Task,
@@ -733,6 +734,133 @@ def message_view(session: Session, message: Message) -> dict[str, Any]:
         "recipient": recipient.name if recipient else message.recipient_agent_id,
         "body": message.body,
         "created_at": iso(message.created_at),
+        "read_at": iso(message.read_at),
+    }
+
+
+# ------------------------------------------------------------ operator channel
+
+
+def _validate_operator_body(world: World, body: str) -> str:
+    body = body.strip()
+    if not body:
+        raise DomainError("operator message body must not be empty", 400)
+    limit = min(8_000, _world_config(world).max_message_chars)
+    if len(body) > limit:
+        raise DomainError(f"operator message too long ({len(body)} chars); limit is {limit}", 400)
+    return body
+
+
+def send_operator_message(
+    session: Session,
+    world: World,
+    agent: Agent,
+    body: str,
+) -> OperatorMessage:
+    message = OperatorMessage(
+        id=_id("op_"),
+        world_id=world.id,
+        agent_id=agent.id,
+        sender="operator",
+        body=_validate_operator_body(world, body),
+        created_at=utcnow(),
+    )
+    session.add(message)
+    _emit(
+        session,
+        world.id,
+        "operator.message.sent",
+        actor_agent_id=agent.id,
+        data={"message_id": message.id, "direction": "operator_to_agent"},
+    )
+    session.commit()
+    return message
+
+
+def send_agent_operator_message(
+    session: Session,
+    world: World,
+    agent: Agent,
+    body: str,
+) -> OperatorMessage:
+    message = OperatorMessage(
+        id=_id("op_"),
+        world_id=world.id,
+        agent_id=agent.id,
+        sender="agent",
+        body=_validate_operator_body(world, body),
+        created_at=utcnow(),
+    )
+    session.add(message)
+    _emit(
+        session,
+        world.id,
+        "operator.message.sent",
+        actor_agent_id=agent.id,
+        data={"message_id": message.id, "direction": "agent_to_operator"},
+    )
+    session.commit()
+    return message
+
+
+def list_operator_messages(
+    session: Session,
+    agent: Agent,
+    *,
+    limit: int = 100,
+    from_operator: bool | None = None,
+) -> list[OperatorMessage]:
+    limit = max(1, min(int(limit), 500))
+    query = select(OperatorMessage).where(OperatorMessage.agent_id == agent.id)
+    if from_operator is True:
+        query = query.where(OperatorMessage.sender == "operator")
+    elif from_operator is False:
+        query = query.where(OperatorMessage.sender == "agent")
+    return list(
+        session.scalars(query.order_by(OperatorMessage.created_at).limit(limit)).all()
+    )
+
+
+def mark_operator_messages_read(
+    session: Session,
+    agent: Agent,
+    message_ids: list[str],
+) -> int:
+    now = utcnow()
+    changed = 0
+    rows = session.scalars(
+        select(OperatorMessage).where(
+            OperatorMessage.agent_id == agent.id,
+            OperatorMessage.id.in_(message_ids),
+            OperatorMessage.sender == "operator",
+        )
+    ).all()
+    for message in rows:
+        if message.delivered_at is None:
+            message.delivered_at = now
+        if message.read_at is None:
+            message.read_at = now
+            changed += 1
+    if changed:
+        _emit(
+            session,
+            agent.world_id,
+            "operator.message.read",
+            actor_agent_id=agent.id,
+            data={"count": changed},
+        )
+        session.commit()
+    return changed
+
+
+def operator_message_view(message: OperatorMessage) -> dict[str, Any]:
+    return {
+        "id": message.id,
+        "world_id": message.world_id,
+        "sender": message.sender,
+        "body": message.body,
+        "created_at": iso(message.created_at),
+        "delivered_at": iso(message.delivered_at),
         "read_at": iso(message.read_at),
     }
 

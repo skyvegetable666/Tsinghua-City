@@ -91,6 +91,24 @@ class MarkReadRequest(BaseModel):
     message_ids: list[str] = Field(min_length=1)
 
 
+class OperatorMessageCreate(BaseModel):
+    body: str = Field(min_length=1, max_length=8_000)
+
+
+class OperatorMessageOut(BaseModel):
+    id: str
+    world_id: str
+    sender: str
+    body: str
+    created_at: str
+    delivered_at: str | None
+    read_at: str | None
+
+
+class OperatorReadRequest(BaseModel):
+    message_ids: list[str] = Field(min_length=1)
+
+
 class PostCreate(BaseModel):
     title: str = Field(min_length=1, max_length=200)
     body: str = Field(min_length=1, max_length=8_000)
