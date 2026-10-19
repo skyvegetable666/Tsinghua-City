@@ -143,6 +143,10 @@ time.sleep(300)
     assert info["HostConfig"]["NanoCpus"] == 10**9
     assert info["Config"]["User"] == "1000:1000"
     assert all(mount["Type"] == "volume" for mount in info["Mounts"])
+    assert any(
+        mount["Destination"] == "/shared" and mount["Name"] == "city-public-" + world["id"]
+        for mount in info["Mounts"]
+    )
     assert info["Config"]["Labels"][LABEL + ".owner"] == started["id"]
     eventually(lambda: "readonly" in docker("logs", name))
     proof = json.loads(docker("exec", name, "cat", "/work/probe.json"))

@@ -31,6 +31,7 @@ class Settings:
     docker_memory: str = "1g"
     docker_cpus: float = 1.0
     docker_pids_limit: int = 128
+    public_workspace_volume: str = "city-public"
 
     @property
     def uses_default_admin_token(self) -> bool:
@@ -59,6 +60,9 @@ def load_settings() -> Settings:
         docker_memory=os.environ.get("CITY_DOCKER_MEMORY", "1g"),
         docker_cpus=float(os.environ.get("CITY_DOCKER_CPUS", "1")),
         docker_pids_limit=int(os.environ.get("CITY_DOCKER_PIDS_LIMIT", "128")),
+        public_workspace_volume=os.environ.get(
+            "CITY_PUBLIC_WORKSPACE_VOLUME", "city-public"
+        ),
     )
 
 

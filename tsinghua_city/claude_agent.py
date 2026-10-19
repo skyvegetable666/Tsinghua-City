@@ -61,6 +61,10 @@ def build_prompt(agent_name: str, agent_id: str, world_id: str) -> str:
         "in a private workspace or on the public board if you choose, and you may also "
         "choose not to write anything. The platform does not require notes, diaries, "
         "summaries, or any particular memory strategy.\n\n"
+        "If the environment exposes /work and /shared, /work is your private "
+        "workspace and /shared is a public read/write workspace. You may use either, "
+        "or neither. /shared is shared mutable state: use an explicit file lock "
+        "(for example flock) when concurrent writes would conflict.\n\n"
         "Act autonomously on your own goals. Do not wait for a scripted operator. "
         "Use the available tools to observe the consequences of your actions."
     )

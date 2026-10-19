@@ -29,7 +29,7 @@ real two-agent task cycle. This remains a single-machine research alpha.
 | Alembic | 0001 through 0005 |
 | Maintenance scheduler | deadlines, terminal death, crash detection, restart |
 | Local runtime manager | start/stop/suspend/resume/terminate/reconcile |
-| Docker sandbox | non-root, private volumes/networks, read-only root, resource limits |
+| Docker sandbox | non-root, private per-agent and shared per-world workspaces, isolated networks, read-only root, resource limits |
 | Claude Code harness | official CLI, existing MCP, bounded turns, native session resume |
 | Sandbox transcripts | stdout/stderr export per launch, paths in lifecycle events |
 | Runtime recovery | process-loss mark, on-failure restart, terminate crashed |

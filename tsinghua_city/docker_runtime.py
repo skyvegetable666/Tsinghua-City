@@ -113,6 +113,8 @@ class DockerRuntimeAdapter:
         name = self.container_name(runtime_id)
         owner = world_id + ":" + agent_id
         volume = "city-work-" + agent_id
+        public_volume = f"{self.settings.public_workspace_volume}-{world_id}"
+        public_owner = "public:" + world_id
         env = {key: os.environ[key] for key in PROVIDER_ENV if os.environ.get(key)}
         env.update({
             "CITY_API_URL": self.settings.docker_api_url,
@@ -126,6 +128,14 @@ class DockerRuntimeAdapter:
             raise DomainError("runtime container already exists", 409)
         if self._owned("volume", volume, owner) is None:
             self._run(["volume", "create", "--label", LABEL + ".owner=" + owner, volume])
+        if self._owned("volume", public_volume, public_owner) is None:
+            self._run([
+                "volume",
+                "create",
+                "--label",
+                LABEL + ".owner=" + public_owner,
+                public_volume,
+            ])
         if self._owned("network", name, runtime_id) is None:
             self._run(["network", "create", "--label", LABEL + ".owner=" + runtime_id, name])
         created = False
@@ -144,6 +154,7 @@ class DockerRuntimeAdapter:
                     str(self.settings.docker_cpus), "--network", name,
                     "--add-host", "host.docker.internal:host-gateway",
                     "--mount", f"type=volume,src={volume},dst=/work",
+                    "--mount", f"type=volume,src={public_volume},dst=/shared",
                     "--tmpfs", "/tmp:rw,nosuid,nodev,size=64m,mode=1777",
                     "--log-driver", "json-file", "--log-opt", "max-size=10m",
                     "--log-opt", "max-file=3", "--env-file", env_file.name,

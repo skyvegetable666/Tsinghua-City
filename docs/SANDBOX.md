@@ -95,6 +95,11 @@ protocol rather than an implicit translation gateway.
   `CITY_DOCKER_CPUS`, `CITY_DOCKER_MEMORY`, and `CITY_DOCKER_PIDS_LIMIT`.
 - One bridge network per runtime; no shared agent network, published ports,
   host filesystem mount, Docker socket, server database, or admin credential.
+- Each runtime gets a private `city-work-{agent_id}` volume at `/work`.
+- Each world gets a shared `{CITY_PUBLIC_WORKSPACE_VOLUME}-{world_id}` volume at
+  `/shared`. It survives runtime stop/restart. Agents must coordinate writes
+  themselves; `flock` is installed in the image. There is no platform lock
+  service.
 - Only the agent's rotated world token and the explicit `ANTHROPIC_*` allowlist
   enter the container. Temporary host env files are private and removed after
   create; the MCP config is generated inside the container's temporary filesystem.
@@ -111,7 +116,8 @@ before reuse or deletion. Container processes have no meaningful host PID in
 the API, so `pid` and `mcp_config_path` are null for this adapter.
 
 Suspend/stop removes the container and its network after exporting logs. Resume
-recreates them with a new world token and reuses `city-work-{agent_id}`. Manager
+recreates them with a new world token and reuses `city-work-{agent_id}` and
+the world's public workspace volume. Manager
 restart reconciles Docker state directly. A missing/unavailable daemon returns
 503 rather than inventing a process crash. Existing automatic restart limits
 apply to both adapters. Messages never resume a suspended runtime. Only an
@@ -131,6 +137,8 @@ copies `/work/transcripts/*.jsonl` into the host `CITY_TRACE_DIR` so the
 inspection. Claude session files and artifacts remain in `/work`. Each launch has a distinct exported log file; the path is
 also recorded in its runtime start/restart event. Volumes are retained on stop; after retiring an
 agent, explicitly remove its `city-work-{agent_id}` volume when no longer needed.
+The shared volume `{CITY_PUBLIC_WORKSPACE_VOLUME}-{world_id}` is per-world and
+also retained; remove it explicitly after the world is retired.
 
 ## Verify
 

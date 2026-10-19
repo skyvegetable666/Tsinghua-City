@@ -176,7 +176,9 @@ loop for a real experiment.
 
 The reference demo is deterministic and proves the MCP loop/task cycle.
 For real model agents, the Docker sandbox packages Claude Code and connects it
-to the same MCP tools; see [sandbox quick start](docs/SANDBOX.md).
+to the same MCP tools; see [sandbox quick start](docs/SANDBOX.md). It mounts a
+private per-agent `/work` volume and a shared per-world `/shared` workspace;
+agents coordinate writes themselves (for example with `flock`).
 The local development runtime still accepts an arbitrary harness command:
 
 ~~~json
