@@ -25,10 +25,6 @@ class Settings:
     scheduler_interval_seconds: float = 5.0
     api_url: str = "http://127.0.0.1:8000"
     runtime_log_dir: str = "runs/runtime"
-    agent_image: str = "tsinghua-city-agent:latest"
-    docker_bin: str = "docker"
-    docker_python: str = "/opt/venv/bin/python"
-    workspace_volume_prefix: str = "tsinghua-city-workspace"
 
     @property
     def uses_default_admin_token(self) -> bool:
@@ -49,12 +45,6 @@ def load_settings() -> Settings:
         ),
         api_url=os.environ.get("CITY_API_URL", "http://127.0.0.1:8000").rstrip("/"),
         runtime_log_dir=os.environ.get("CITY_RUNTIME_LOG_DIR", "runs/runtime"),
-        agent_image=os.environ.get("CITY_AGENT_IMAGE", "tsinghua-city-agent:latest"),
-        docker_bin=os.environ.get("CITY_DOCKER_BIN", "docker"),
-        docker_python=os.environ.get("CITY_DOCKER_PYTHON", "/opt/venv/bin/python"),
-        workspace_volume_prefix=os.environ.get(
-            "CITY_WORKSPACE_VOLUME_PREFIX", "tsinghua-city-workspace"
-        ),
     )
 
 

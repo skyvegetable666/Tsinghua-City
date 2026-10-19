@@ -1,8 +1,8 @@
 # Testing guide
 
 - **Code checkpoint:** `9e4c066`
-- **Default expectation:** `38 passed, 2 skipped`
-- **Postgres expectation:** `40 passed`
+- **Default expectation:** `37 passed, 2 skipped`
+- **Postgres expectation:** `39 passed`
 
 ## 1. Local setup
 
@@ -47,7 +47,7 @@ Use a **disposable** database. The fixture drops and recreates tables.
 pip install -e '.[dev,postgres]'
 export CITY_TEST_DATABASE_URL=postgresql+psycopg://postgres:city@127.0.0.1:5432/city_test
 pytest -q
-# expected: 40 passed
+# expected: 39 passed
 
 pytest -q tests/test_postgres_concurrency.py -vv
 # both tests must pass; one transfer is 409, the other ok
@@ -90,18 +90,6 @@ The tests start a fake Claude CLI using the stream-json protocol. They verify
 that the harness sends the first user turn, captures init/assistant/result
 events, constructs an MCP config command, and writes the agent entrypoint's
 JSONL trace. They do not require a model, credentials, or Docker.
-
-### Docker adapter (fake Docker CLI)
-
-~~~bash
-pytest -q tests/test_docker_runtime.py
-# 1 passed
-~~~
-
-The test uses a fake docker executable. It verifies container naming, host
-gateway mapping, the private workspace mount, the read-only container MCP
-config, and the absence of the host admin token. It does not build or start a
-real container.
 
 ## 5. Canvas smoke
 

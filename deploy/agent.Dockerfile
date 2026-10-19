@@ -44,13 +44,11 @@ RUN python3 -m venv /opt/venv \
 
 ENV PATH="/opt/venv/bin:$PATH"
 
-RUN mkdir -p /workspace /workspace/transcripts /run/tsinghua \
+RUN mkdir -p /workspace /workspace/transcripts \
     && chown -R agent:agent /workspace \
-    && chmod -R a+rX /app /run/tsinghua
+    && chmod -R a+rX /app
 
 USER agent
 WORKDIR /workspace
 
-# The runtime adapter supplies the full agent command. Keeping this as CMD
-# (not ENTRYPOINT) allows docker run <image> <argv> to replace it cleanly.
-CMD ["/opt/venv/bin/python", "-m", "tsinghua_city.claude_agent"]
+ENTRYPOINT ["/opt/venv/bin/python", "-m", "tsinghua_city.claude_agent"]

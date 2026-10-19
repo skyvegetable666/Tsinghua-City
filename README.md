@@ -10,10 +10,9 @@ This repository is currently an **alpha / single-node lab checkpoint**, not a pr
 - Architecture decisions: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 - First product and reuse map: [docs/FIRST_PRODUCT.md](docs/FIRST_PRODUCT.md)
 - Milestone history: [docs/CHANGELOG.md](docs/CHANGELOG.md)
-- Third-party notices: [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)
 
 - **Code checkpoint:** `9e4c066`
-- **Local test result:** `38 passed, 2 skipped`
+- **Local test result:** `37 passed, 2 skipped`
 - **Old prototype:** frozen under `archive/genesis-lab/` (zero runtime imports)
 
 ---
@@ -43,7 +42,6 @@ This repository is currently an **alpha / single-node lab checkpoint**, not a pr
 
 - admin start/stop/suspend/resume/terminate
 - local subprocess adapter
-- Docker adapter with private workspace volume, read-only MCP config, and no admin token
 - runtime logs and generated MCP stdio config
 - token rotation on start/resume/auto-restart
 - process-loss reconciliation
@@ -67,10 +65,9 @@ This repository is currently an **alpha / single-node lab checkpoint**, not a pr
 
 ## 2. Not ready yet
 
-- **Docker adapter is not live-tested**: its command construction is tested with a fake Docker CLI, but the full image/container stack has not run
+- **no wired Docker adapter**: a sandbox image exists under `deploy/`, but runtime start still uses the local process adapter
 - **no verified live Claude run**: the harness is tested against a fake CLI; model authentication and a real run still need verification
 - **no sandbox security test**
-- **Docker Desktop WSL integration is not enabled in this workspace**
 - **no safe-point injection into an active model call**
 - **no durable multi-worker runtime leases**
 - **Canvas is an early admin monitor**, not the final experiment UI
@@ -232,8 +229,7 @@ Tsinghua-City/
 │   ├── service.py            # authoritative operations
 │   ├── models.py             # SQL state
 │   ├── schemas.py
-│   ├── runtime.py            # runtime manager (local + Docker adapters)
-│   ├── docker_runtime.py     # Docker CLI sandbox adapter
+│   ├── runtime.py            # local runtime manager
 │   ├── scheduler.py          # maintenance sweep
 │   ├── mcp_server.py         # MCP world tools
 │   ├── claude_harness.py     # Claude Code stream-json harness
@@ -253,9 +249,8 @@ Tsinghua-City/
 │   ├── check_hygiene.py
 │   └── two_agent_demo.py
 ├── deploy/
-│   ├── agent.Dockerfile      # sandbox image
+│   ├── agent.Dockerfile      # sandbox image reference
 │   └── README.md
-├── THIRD_PARTY_NOTICES.md
 └── archive/
     └── genesis-lab/          # frozen previous prototype
 ~~~
@@ -266,7 +261,7 @@ Tsinghua-City/
 
 ~~~bash
 pytest -q
-# local checkpoint: 38 passed, 2 skipped
+# local checkpoint: 37 passed, 2 skipped
 ~~~
 
 The two skips are Postgres-only concurrency tests.
@@ -277,7 +272,7 @@ With a disposable Postgres:
 pip install -e '.[dev,postgres]'
 export CITY_TEST_DATABASE_URL=postgresql+psycopg://.../city_test
 pytest -q
-# expected at this checkpoint: 40 passed
+# expected at this checkpoint: 39 passed
 ~~~
 
 Windows testers with a system proxy should read [docs/TESTING.md](docs/TESTING.md). The loopback test client and MCP sidecar bypass WinINET proxies, but external harnesses may still need `NO_PROXY`.
