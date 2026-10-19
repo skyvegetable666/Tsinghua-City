@@ -24,11 +24,11 @@ This is a compact milestone log; Git history remains authoritative.
 - early Canvas at `/canvas` with admin board-read API
 - Claude Code stream-json harness port and `tsinghua-city-agent` entrypoint
 - Docker sandbox image and Docker runtime adapter (fake-Docker tested)
-- local count: 39 passed / 2 skipped; Postgres expected 41 passed
+- local count: 38 passed / 2 skipped; Postgres expected 40 passed
 
 ## Verification snapshots
 
 - At `17af044`: Windows 26 passed / 2 skipped; Postgres 28 passed; double-spend 5/5.
 - At `9e4c066`: Windows 29 passed / 2 skipped; Postgres 31 passed.
-- Reference harness + Canvas + Claude harness at current HEAD: local 39 passed / 2 skipped; manual two-agent demo completed four tasks; Claude harness verified only with a fake CLI; Windows/Postgres not yet rerun.
+- Reference harness + Canvas + Claude harness at current HEAD: local 38 passed / 2 skipped; manual two-agent demo completed four tasks; Claude harness verified only with a fake CLI; Windows/Postgres not yet rerun.
 - The old `genesis-lab` prototype was archived after Phase 3 local runtime; it has no runtime imports.
