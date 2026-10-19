@@ -1,8 +1,8 @@
 # Testing guide
 
-- **Code checkpoint:** `9e4c066`
-- **Default expectation:** `69 passed, 9 skipped` (seven Docker + two Postgres checks)
-- **With Docker:** `76 passed, 2 skipped`
+- **Integrated upstream base:** `4824d6b`
+- **Default expectation:** `74 passed, 9 skipped` (seven Docker + two Postgres checks)
+- **With Docker:** `81 passed, 2 skipped`
 
 ## 1. Local setup
 
@@ -57,7 +57,7 @@ Use a **disposable** database. The fixture drops and recreates tables.
 pip install -e '.[dev,postgres]'
 export CITY_TEST_DATABASE_URL=postgresql+psycopg://postgres:city@127.0.0.1:5432/city_test
 pytest -q
-# expected without Docker: 71 passed, 7 skipped
+# expected without Docker: 76 passed, 7 skipped
 
 pytest -q tests/test_postgres_concurrency.py -vv
 # both tests must pass; one transfer is 409, the other ok
@@ -93,7 +93,7 @@ GET reports a successful runtime as STOPPED with exit_code 0; it must not restar
 
 ~~~bash
 pytest -q tests/test_claude_harness.py tests/test_claude_agent.py
-# 10 passed
+# 11 passed
 ~~~
 
 The tests start a fake Claude CLI using the stream-json protocol. They verify
@@ -121,7 +121,19 @@ Agents read with `GET /v1/me/operator/messages`, reply with
 `get_operator_messages`, `talk_to_operator`, and
 `mark_operator_messages_read`.
 
-## 6. Trace viewer
+## 6. Run manifests
+
+~~~bash
+pytest -q tests/test_manifests.py
+# 1 passed
+~~~
+
+Each runtime start writes a secret-free JSON manifest under
+`CITY_MANIFEST_DIR` (default `runs/manifests`). Admin can list an agent's
+manifests and read one by name. Commands, adapter, image, limits, trace/log
+paths, and timestamps are included; credentials are not.
+
+## 7. Trace viewer
 
 ~~~bash
 pytest -q tests/test_traces.py
@@ -134,7 +146,42 @@ uses the admin token. Docker stop/crash cleanup copies the container's
 `/work/transcripts/*.jsonl` into the host trace directory. Structured stdout is
 also exported as a per-launch live snapshot during maintenance polls.
 
-## 7. Canvas smoke
+## 8. Docker image smoke
+
+~~~bash
+scripts/docker_image_smoke.sh
+~~~
+
+Builds `tsinghua-city-agent:0.1` and checks the non-root UID, writable
+`/work` and `/shared`, `flock`, Claude Code, and the Python package. It does
+not require model credentials or start a world.
+
+## 9. Live Claude Code smoke
+
+~~~bash
+export ANTHROPIC_AUTH_TOKEN=...
+# or ANTHROPIC_API_KEY=...
+python scripts/live_claude_smoke.py
+~~~
+
+Requires a working Docker CLI and the built agent image. The script starts a
+disposable world/API, launches the Docker sandbox, asks Claude Code to call
+`check_state` once, and asserts `LIVE_CLAUDE_OK` plus a tool result. It never
+prints credentials. In this environment Docker Desktop's Windows CLI was
+bridged because WSL integration was unavailable.
+
+## 10. Doctor
+
+~~~bash
+tsinghua-city doctor
+~~~
+
+Checks the database migration path, runtime/trace/manifest directories,
+\`CITY_ADMIN_TOKEN\`, Docker CLI/daemon/image, Claude CLI, and model
+credentials. It exits non-zero when Docker or Claude is missing; this is the
+fastest way to see why a real run cannot start.
+
+## 11. Canvas smoke
 
 Open `http://127.0.0.1:8000/canvas` or:
 
@@ -146,7 +193,7 @@ pytest -q tests/test_canvas.py
 Enter the admin token, select a world, and verify agents/tasks/posts/events/runtime
 statuses render. The Canvas is an admin monitor; it does not expose agent tokens.
 
-## 8. MCP protocol
+## 12. MCP protocol
 
 ~~~powershell
 pytest -q tests/test_mcp_protocol.py -s
@@ -154,7 +201,7 @@ pytest -q tests/test_mcp_protocol.py -s
 
 This starts a live World API and a real `python -m tsinghua_city mcp` stdio process, then checks `tools/list` and `tools/call`.
 
-## 9. Runtime manual acceptance
+## 13. Runtime manual acceptance
 
 Create a world and at least two agents.
 
@@ -185,7 +232,7 @@ Check:
 
 If `serve` is running, its scheduler may restart crashed processes before manual `tick`. For deterministic manual tests, stop the server or set `CITY_SCHEDULER_ENABLED=0`.
 
-## 10. Migration checks
+## 14. Migration checks
 
 Fresh database:
 
@@ -204,7 +251,7 @@ tsinghua-city upgrade
 
 Current tables include: worlds, agents, accounts, ledger transactions/entries, messages, tasks, posts, post_replies, agent_runtimes, events.
 
-## 11. API smoke
+## 15. API smoke
 
 Start:
 
@@ -221,7 +268,7 @@ Useful manual flows:
 - start/suspend/resume/stop a runtime
 - inspect events with admin token
 
-## 12. Reporting
+## 16. Reporting
 
 Include:
 

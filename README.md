@@ -16,8 +16,8 @@ inside Docker, including payment, life extension, and session resume.
 - Milestone history: [docs/CHANGELOG.md](docs/CHANGELOG.md)
 - Third-party notices: [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)
 
-- **Code checkpoint:** `9e4c066`
-- **With real Docker tests:** `76 passed, 2 skipped`
+- **Integrated upstream base:** `4824d6b`
+- **With real Docker tests:** `81 passed, 2 skipped`
 - **Old prototype:** frozen under `archive/genesis-lab/` (zero runtime imports)
 
 ---
@@ -59,14 +59,20 @@ inside Docker, including payment, life extension, and session resume.
 - Claude Code CLI stream-json harness ported from the archive; JSONL run trace
 - early Canvas at `/canvas`: worlds, agents, runtimes, tasks, posts, events
 - trace viewer at `/traces`: per-agent JSONL run traces
+- contract-checked Claude launch endpoint and Canvas start/stop controls
+- `tsinghua-city doctor` host readiness checks
+- `scripts/docker_image_smoke.sh` image build and sandbox smoke
+- `scripts/live_claude_smoke.py` opt-in real Docker + Claude + MCP smoke
+- secret-free runtime manifests under `runs/manifests`
 
 ### Interfaces
 
 - FastAPI admin + agent API
 - MCP server for world capabilities
-- CLI: `init`, `upgrade`, `serve`, `tick`, `create-world`, `create-agent`, `mcp`
+- CLI: `init`, `upgrade`, `serve`, `tick`, `create-world`, `create-agent`, `mcp`,
+  `doctor`, `run-experiment`, `stop-experiment`
 - `tsinghua-city-agent` Claude Code harness entrypoint
-- Alembic migrations through `0005_runtime_restart`
+- Alembic migrations through `0006_operator_messages`
 
 ---
 
@@ -188,7 +194,9 @@ between turns. See [EXPERIMENTS.md](docs/EXPERIMENTS.md).
 
 The reference demo is deterministic and proves the MCP loop/task cycle.
 For real model agents, the Docker sandbox packages Claude Code and connects it
-to the same MCP tools; see [sandbox quick start](docs/SANDBOX.md).
+to the same MCP tools; see [sandbox quick start](docs/SANDBOX.md). It mounts a
+private per-agent `/work` volume and a shared per-world `/shared` workspace;
+agents coordinate writes themselves (for example with `flock`).
 The local development runtime still accepts an arbitrary harness command:
 
 ~~~json
@@ -241,7 +249,7 @@ Tsinghua-City/
 ├── README.md
 ├── pyproject.toml
 ├── alembic.ini
-├── migrations/               # Alembic 0001..0005
+├── migrations/               # Alembic 0001..0006
 ├── tsinghua_city/
 │   ├── api.py                # World API
 │   ├── service.py            # authoritative operations
@@ -280,7 +288,7 @@ Tsinghua-City/
 
 ~~~bash
 pytest -q
-# default: 48 passed, 6 skipped (Docker/Postgres)
+# default: 74 passed, 9 skipped (Docker/Postgres)
 ~~~
 
 The two skips are Postgres-only concurrency tests.
@@ -291,7 +299,7 @@ With a disposable Postgres:
 pip install -e '.[dev,postgres]'
 export CITY_TEST_DATABASE_URL=postgresql+psycopg://.../city_test
 pytest -q
-# expected without Docker: 50 passed, 4 skipped
+# expected without Docker: 76 passed, 7 skipped
 ~~~
 
 Windows testers with a system proxy should read [docs/TESTING.md](docs/TESTING.md). The loopback test client and MCP sidecar bypass WinINET proxies, but external harnesses may still need `NO_PROXY`.

@@ -52,6 +52,7 @@ def settings(tmp_path) -> Settings:
         scheduler_enabled=False,
         runtime_log_dir=str(tmp_path / "runtime"),
         trace_dir=str(tmp_path / "transcripts"),
+        manifest_dir=str(tmp_path / "manifests"),
     )
 
 

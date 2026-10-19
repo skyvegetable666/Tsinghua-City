@@ -21,6 +21,7 @@ RUN apt-get -o Acquire::Retries=3 update \
         jq \
         procps \
         ripgrep \
+        util-linux \
     && rm -rf /var/lib/apt/lists/*
 RUN npm install -g @anthropic-ai/claude-code@2.1.296 && npm cache clean --force
 RUN python -m venv /opt/venv
@@ -30,7 +31,8 @@ WORKDIR /opt/city
 COPY pyproject.toml README.md ./
 COPY tsinghua_city/ ./tsinghua_city/
 RUN pip install --no-cache-dir . \
-    && mkdir -p /work/home && chown -R 1000:1000 /work
+    && mkdir -p /work/home /shared \
+    && chown -R 1000:1000 /work /shared
 WORKDIR /work
 USER 1000:1000
 ENTRYPOINT ["python", "-m", "tsinghua_city.sandbox_entrypoint"]

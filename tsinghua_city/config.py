@@ -26,11 +26,13 @@ class Settings:
     api_url: str = "http://127.0.0.1:8000"
     runtime_log_dir: str = "runs/runtime"
     trace_dir: str = "runs/transcripts"
+    manifest_dir: str = "runs/manifests"
     docker_image: str = "tsinghua-city-agent:0.1"
     docker_api_url: str = "http://host.docker.internal:8000"
     docker_memory: str = "1g"
     docker_cpus: float = 1.0
     docker_pids_limit: int = 128
+    public_workspace_volume: str = "city-public"
 
     @property
     def uses_default_admin_token(self) -> bool:
@@ -52,6 +54,7 @@ def load_settings() -> Settings:
         api_url=os.environ.get("CITY_API_URL", "http://127.0.0.1:8000").rstrip("/"),
         runtime_log_dir=os.environ.get("CITY_RUNTIME_LOG_DIR", "runs/runtime"),
         trace_dir=os.environ.get("CITY_TRACE_DIR", "runs/transcripts"),
+        manifest_dir=os.environ.get("CITY_MANIFEST_DIR", "runs/manifests"),
         docker_image=os.environ.get("CITY_DOCKER_IMAGE", "tsinghua-city-agent:0.1"),
         docker_api_url=os.environ.get(
             "CITY_DOCKER_API_URL", "http://host.docker.internal:8000"
@@ -59,6 +62,9 @@ def load_settings() -> Settings:
         docker_memory=os.environ.get("CITY_DOCKER_MEMORY", "1g"),
         docker_cpus=float(os.environ.get("CITY_DOCKER_CPUS", "1")),
         docker_pids_limit=int(os.environ.get("CITY_DOCKER_PIDS_LIMIT", "128")),
+        public_workspace_volume=os.environ.get(
+            "CITY_PUBLIC_WORKSPACE_VOLUME", "city-public"
+        ),
     )
 
 

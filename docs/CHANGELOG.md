@@ -2,7 +2,7 @@
 
 This is a compact milestone log; Git history remains authoritative.
 
-## Working runtime / experiment fixes (base `0c4caf2`)
+## Working runtime / experiment fixes (upstream base `4824d6b`)
 
 - Successful exits become STOPPED and cannot trigger on-failure recovery.
 - Terminal death stops running execution; unavailable-Docker cleanup is retried.
@@ -10,7 +10,12 @@ This is a compact milestone log; Git history remains authoritative.
 - Versioned experiment manifests provide batch start/stop and condition archives.
 - Existing Claude Code supports bounded message-driven user turns and native
   budget limits; suspended runtimes still require explicit operator resume.
-- Validation: 76 passed / 2 Postgres-only skipped, including seven real Docker checks.
+- Preserves upstream shared workspaces, run manifests, admin launch controls,
+  readiness checks, and Docker/live-model smoke scripts.
+- Missing-Docker diagnostics use a portable platform API; macOS/Windows/WSL
+  kernel releases are covered without reading `/proc/version`.
+- Docker fixtures clean their per-world shared volumes and isolate manifest files.
+- Validation: 81 passed / 2 Postgres-only skipped, including seven real Docker checks.
 
 | Commit | Milestone |
 | --- | --- |
@@ -35,11 +40,16 @@ This is a compact milestone log; Git history remains authoritative.
 - Claude Code stream-json harness port and `tsinghua-city-agent` entrypoint
 - Docker sandbox image reference in `deploy/`
 - read-only /traces viewer for JSONL run traces
-- local count: 48 passed / 6 skipped without Docker; 52 passed / 2 skipped with Docker
+- secret-free per-runtime experiment manifests
+- admin Claude run launch/stop and Canvas controls
+- `tsinghua-city doctor` host readiness command
+- live Docker + Claude Code + MCP smoke script
+- Before runtime integration: 51 passed / 6 skipped without Docker;
+  55 passed / 2 skipped with Docker (upstream Windows report).
 
 ## Verification snapshots
 
 - At `17af044`: Windows 26 passed / 2 skipped; Postgres 28 passed; double-spend 5/5.
 - At `9e4c066`: Windows 29 passed / 2 skipped; Postgres 31 passed.
-- Reference harness + Canvas + Claude harness at current HEAD: local 37 passed / 2 skipped; manual two-agent demo completed four tasks; Claude harness verified only with a fake CLI; Windows/Postgres not yet rerun.
+- Before the Docker sandbox: reference harness + Canvas + Claude harness had local 37 passed / 2 skipped; manual two-agent demo completed four tasks; Claude harness was verified only with a fake CLI; Windows/Postgres had not yet been rerun.
 - The old `genesis-lab` prototype was archived after Phase 3 local runtime; it has no runtime imports.

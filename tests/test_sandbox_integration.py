@@ -18,7 +18,7 @@ from conftest import create_agent, create_world
 from tsinghua_city.api import create_app
 from tsinghua_city.config import Settings
 from tsinghua_city.docker_runtime import LABEL, DockerRuntimeAdapter
-from tsinghua_city.models import Agent, AgentRuntime
+from tsinghua_city.models import Agent, AgentRuntime, World
 from tsinghua_city.runtime import RuntimeManager
 from tsinghua_city.scheduler import tick_once
 
@@ -56,6 +56,7 @@ def live_city(tmp_path, monkeypatch):
         database_url=f"sqlite:///{tmp_path / 'city.db'}", admin_token="integration-admin",
         scheduler_enabled=False, runtime_log_dir=str(tmp_path / "logs"),
         trace_dir=str(tmp_path / "transcripts"),
+        manifest_dir=str(tmp_path / "manifests"),
         docker_api_url=f"http://host.docker.internal:{port}",
         docker_image=os.environ.get("CITY_DOCKER_IMAGE", "tsinghua-city-agent:0.1"),
     )
@@ -79,6 +80,16 @@ def live_city(tmp_path, monkeypatch):
                         ["docker", "volume", "inspect", name], capture_output=True, check=False,
                     )
                     if info.returncode == 0:
+                        docker("volume", "rm", name)
+                for world in session.query(World).all():
+                    name = app.state.settings.public_workspace_volume + "-" + world.id
+                    info = subprocess.run(
+                        ["docker", "volume", "inspect", name],
+                        capture_output=True, text=True, check=False,
+                    )
+                    if info.returncode == 0:
+                        labels = json.loads(info.stdout)[0].get("Labels") or {}
+                        assert labels.get(LABEL + ".owner") == "public:" + world.id
                         docker("volume", "rm", name)
             server.should_exit = True
             thread.join(timeout=10)
@@ -227,6 +238,10 @@ time.sleep(300)
     assert info["HostConfig"]["NanoCpus"] == 10**9
     assert info["Config"]["User"] == "1000:1000"
     assert all(mount["Type"] == "volume" for mount in info["Mounts"])
+    assert any(
+        mount["Destination"] == "/shared" and mount["Name"] == "city-public-" + world["id"]
+        for mount in info["Mounts"]
+    )
     assert info["Config"]["Labels"][LABEL + ".owner"] == started["id"]
     eventually(lambda: "readonly" in docker("logs", name))
     proof = json.loads(docker("exec", name, "cat", "/work/probe.json"))

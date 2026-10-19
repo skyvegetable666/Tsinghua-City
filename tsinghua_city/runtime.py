@@ -354,7 +354,41 @@ class RuntimeManager:
             adapter.stop(runtime)
             raise
         session.refresh(runtime)
+        self._write_manifest(runtime)
         return runtime
+
+    def _write_manifest(self, runtime: AgentRuntime) -> None:
+        """Write a secret-free run manifest for experiment reproducibility."""
+        try:
+            directory = Path(self.settings.manifest_dir).expanduser().resolve()
+            directory.mkdir(parents=True, exist_ok=True)
+            directory.chmod(0o700)
+            payload = {
+                "manifest_version": 1,
+                "created_at": iso(runtime.started_at),
+                "runtime_id": runtime.id,
+                "world_id": runtime.world_id,
+                "agent_id": runtime.agent_id,
+                "adapter": runtime.adapter,
+                "command": runtime.command,
+                "restart_policy": runtime.restart_policy,
+                "max_restarts": runtime.max_restarts,
+                "api_url": self.settings.api_url,
+                "docker_image": self.settings.docker_image
+                if runtime.adapter == "docker"
+                else None,
+                "docker_api_url": self.settings.docker_api_url
+                if runtime.adapter == "docker"
+                else None,
+                "trace_dir": self.settings.trace_dir,
+                "log_path": runtime.log_path,
+                "mcp_config_path": runtime.mcp_config_path,
+            }
+            path = directory / f"{runtime.id}-{int((runtime.started_at or 0) * 1000)}.json"
+            path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+            path.chmod(0o600)
+        except OSError:
+            logger.exception("could not write run manifest for %s", runtime.id)
 
     def start(
         self,

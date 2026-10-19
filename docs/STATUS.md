@@ -2,15 +2,19 @@
 
 - **As of:** 2026-10-19
 - **Base checkpoint:** `36c3f48`
-- **Stage:** Docker sandbox / real Claude Code smoke verified
+- **Integrated upstream base:** `4824d6b`
+- **Stage:** Docker sandbox / live Claude Code verified
 - **Design baseline:** [../Design.md](../Design.md)
 
 ## Summary
 
 Tsinghua City has an authoritative world-state service, MCP capabilities, a task
 market with escrow, a public board, and interchangeable local/Docker runtimes.
-The Docker sandbox packages the official Claude Code CLI and has completed a
-real two-agent task cycle. This remains a single-machine research alpha.
+The Docker sandbox packages the official Claude Code CLI and has completed real
+Docker integration tests for isolation, workspace persistence, restart, and the
+deterministic two-agent MCP task cycle. A live Claude Code run in the Docker
+sandbox also called the MCP `check_state` tool and returned the expected marker
+with exit code 0. This remains a single-machine research alpha.
 
 ## Implemented
 
@@ -26,11 +30,16 @@ real two-agent task cycle. This remains a single-machine research alpha.
 | Public bulletin board | done |
 | Idempotency | transfers, life, messages, task publication |
 | MCP | world, task, board tools; real stdio test |
-| Alembic | 0001 through 0005 |
+| Alembic | 0001 through 0006 |
 | Maintenance scheduler | deadlines, terminal death, crash detection, restart |
 | Local runtime manager | start/stop/suspend/resume/terminate/reconcile |
-| Docker sandbox | non-root, private volumes/networks, read-only root, resource limits |
+| Docker sandbox | non-root, private per-agent and shared per-world workspaces, isolated networks, read-only root, resource limits; image smoke verified |
+| Image smoke | Docker Desktop Windows: non-root 1000, writable /work and /shared, flock, Claude Code 2.1.296, Python import |
+| Docker integration | 7 real tests on macOS Docker Desktop: isolation, token rotation, persistence, recovery, terminal death, bounded turns, MCP task/life cycle |
+| Live model | verified 2026-10-19: Claude Code 2.1.296, real model call, MCP check_state tool result, exit 0; credentials are supplied through env only |
 | Claude Code harness | official CLI, existing MCP, bounded turns, native session resume |
+| Run launch | admin Claude start/stop endpoint and Canvas controls |
+| Doctor | database, directories, Docker daemon/image, Claude CLI/credentials; portable missing-Docker diagnostics |
 | Sandbox transcripts | stdout/stderr export per launch, paths in lifecycle events |
 | Runtime recovery | process-loss mark, on-failure restart, terminate crashed |
 | Reference harness | deterministic MCP policy + two-agent demo + JSONL journals |
@@ -40,6 +49,7 @@ real two-agent task cycle. This remains a single-machine research alpha.
 | Docker trace ingestion | structured stdout exported to host JSONL; world/agent/run filters |
 | Experiment launch | version-1 manifest, batch start/stop, condition archive, failed-launch cleanup |
 | Bounded continuation | inbox delivery between user turns; CLI cost/turn limits and wall-time limit |
+| Run manifests | secret-free reproducibility records per runtime start |
 | Token rotation | runtime start/resume/auto-restart; old tokens invalidated |
 | Runtime MCP config | generated per process; removed on stop |
 | Windows proxy handling | loopback clients bypass WinINET |
@@ -50,11 +60,14 @@ real two-agent task cycle. This remains a single-machine research alpha.
 Local checkpoint with real Docker integration enabled:
 
 ~~~text
-76 passed, 2 skipped
+81 passed, 2 skipped
 ~~~
 
 The skipped tests are Postgres-only concurrency checks. The two-agent reference
 demo was also run manually and completed four tasks across alice/bob.
+
+The missing-Docker diagnostic is regression-tested for macOS, Windows, and WSL
+kernel releases. It uses Python's portable platform API instead of `/proc/version`.
 
 Real model validation on macOS Docker Desktop: Claude Code 2.1.296 with an
 Anthropic-compatible GLM 5.2 provider completed four invocations and 16 tool

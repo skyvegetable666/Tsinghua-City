@@ -4,6 +4,10 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import platform
+import shutil
+import subprocess
 from pathlib import Path
 
 from sqlalchemy import select
@@ -142,6 +146,98 @@ def cmd_experiment(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_doctor(args: argparse.Namespace) -> int:
+    """Check whether this host can run the first product end to end."""
+    settings = load_settings()
+    checks: list[dict[str, str]] = []
+
+    def add(name: str, status: str, detail: str) -> None:
+        checks.append({"name": name, "status": status, "detail": detail})
+
+    try:
+        upgrade_database(settings.database_url)
+        add("database", "ok", settings.database_url)
+    except Exception as exc:  # doctor reports setup failures
+        add("database", "fail", f"{type(exc).__name__}: {exc}")
+
+    for label, raw in (
+        ("runtime logs", settings.runtime_log_dir),
+        ("traces", settings.trace_dir),
+        ("manifests", settings.manifest_dir),
+    ):
+        path = Path(raw).expanduser()
+        try:
+            path.mkdir(parents=True, exist_ok=True)
+            probe = path / ".doctor-write-test"
+            probe.write_text("ok", encoding="utf-8")
+            probe.unlink(missing_ok=True)
+            add(label, "ok", str(path.resolve()))
+        except OSError as exc:
+            add(label, "fail", f"{raw}: {exc}")
+
+    if settings.uses_default_admin_token:
+        add("admin token", "warn", "using dev-admin-token; set CITY_ADMIN_TOKEN")
+    else:
+        add("admin token", "ok", "CITY_ADMIN_TOKEN is set")
+
+    docker = shutil.which("docker")
+    if docker is None:
+        detail = "docker CLI not found"
+        if "microsoft" in platform.release().lower():
+            detail += "; enable Docker Desktop WSL integration for this distro"
+        add("docker CLI", "fail", detail)
+    else:
+        add("docker CLI", "ok", docker)
+        try:
+            result = subprocess.run(
+                [docker, "info", "--format", "{{.ServerVersion}}"],
+                capture_output=True,
+                text=True,
+                timeout=20,
+                check=False,
+            )
+            if result.returncode == 0:
+                add("docker daemon", "ok", result.stdout.strip())
+                image = subprocess.run(
+                    [docker, "image", "inspect", settings.docker_image],
+                    capture_output=True,
+                    text=True,
+                    timeout=20,
+                    check=False,
+                )
+                if image.returncode == 0:
+                    add("agent image", "ok", settings.docker_image)
+                else:
+                    add("agent image", "fail", f"build {settings.docker_image} first")
+            else:
+                add("docker daemon", "fail", "docker info failed")
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            add("docker daemon", "fail", str(exc))
+
+    claude = os.environ.get("CITY_CLAUDE_BIN") or shutil.which("claude")
+    if claude:
+        add("claude CLI", "ok", claude)
+    else:
+        add("claude CLI", "fail", "install Claude Code or set CITY_CLAUDE_BIN")
+
+    credential_names = ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN")
+    if any(os.environ.get(name) for name in credential_names):
+        add("model credentials", "ok", "ANTHROPIC_* environment is set")
+    elif (Path.home() / ".claude" / "config.json").exists():
+        add("model credentials", "warn", "only local Claude config found; containers need explicit env")
+    else:
+        add("model credentials", "warn", "set ANTHROPIC_API_KEY or ANTHROPIC_AUTH_TOKEN")
+
+    if args.json:
+        print(json.dumps({"checks": checks}, indent=2, ensure_ascii=False))
+    else:
+        for check in checks:
+            print(f"[{check['status']}] {check['name']}: {check['detail']}")
+        failures = sum(1 for check in checks if check["status"] == "fail")
+        print(f"\n{len(checks) - failures}/{len(checks)} checks passed")
+    return 1 if any(check["status"] == "fail" for check in checks) else 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="tsinghua-city")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -182,6 +278,9 @@ def build_parser() -> argparse.ArgumentParser:
     stop = sub.add_parser("stop-experiment", help="stop runtimes from an archived run.json")
     stop.add_argument("path", help="path to the archived run.json")
     stop.set_defaults(func=cmd_experiment)
+    doctor = sub.add_parser("doctor", help="check host prerequisites for real runs")
+    doctor.add_argument("--json", action="store_true")
+    doctor.set_defaults(func=cmd_doctor)
     return parser
 
 

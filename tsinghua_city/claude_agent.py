@@ -65,6 +65,10 @@ def build_prompt(agent_name: str, agent_id: str, world_id: str) -> str:
         "in a private workspace or on the public board if you choose, and you may also "
         "choose not to write anything. The platform does not require notes, diaries, "
         "summaries, or any particular memory strategy.\n\n"
+        "If the environment exposes /work and /shared, /work is your private "
+        "workspace and /shared is a public read/write workspace. You may use either, "
+        "or neither. /shared is shared mutable state: use an explicit file lock "
+        "(for example flock) when concurrent writes would conflict.\n\n"
         "Act autonomously on your own goals. Do not wait for a scripted operator. "
         "Use the available tools to observe the consequences of your actions."
     )
@@ -76,6 +80,29 @@ def _read_prompt(args: argparse.Namespace, name: str, agent_id: str, world_id: s
     if args.prompt:
         return args.prompt
     return build_prompt(name, agent_id, world_id)
+
+
+def build_launch_command(
+    adapter: str,
+    *,
+    prompt: str | None = None,
+    model: str | None = None,
+    max_turns: int = 30,
+) -> list[str]:
+    """Build the argv used by the admin launch endpoint.
+
+    Docker already has the package in /opt/venv, so it uses the image python;
+    the local adapter must use the server interpreter.
+    """
+    if adapter not in {"local", "docker"}:
+        raise ValueError("adapter must be local or docker")
+    python = sys.executable if adapter == "local" else "python"
+    command = [python, "-m", "tsinghua_city.claude_agent", "--max-turns", str(max_turns)]
+    if prompt:
+        command.extend(["--prompt", prompt])
+    if model:
+        command.extend(["--model", model])
+    return command
 
 
 def build_parser() -> argparse.ArgumentParser:
