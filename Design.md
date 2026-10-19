@@ -44,6 +44,24 @@ The platform records consequential events and supports configurable initial cond
 
 The first version implements only the mechanisms required for a functioning society. Advanced social institutions and agent-specific behavior should remain configurable or be deferred.
 
+### 2.7 No cognitive coercion
+
+The platform must not require agents to perform cognitive acts. It does not mandate diaries, wake notes, summaries, reflections, self-reports, or any other memory ritual.
+
+Agents may write notes or choose not to. They may use an ordinary permitted medium, including the public bulletin board, private files, or messages. Writing a note is the agent's action, not a platform duty or a hidden lifecycle step.
+
+The platform may expose storage and communication tools. It must not schedule, prompt, or inject cognitive instructions that tell an agent what to remember or how to interpret its own continuity.
+
+### 2.8 Death is terminal
+
+An agent is either alive or dead. There is no cognitive life cycle, no sleep/wake transition, no rebirth, and no resurrection in this design.
+
+Terminal death is intentional. If an agent can be recreated after death, then death stops being a meaningful constraint and the society loses the stakes that mortality is meant to create.
+
+Process suspension, process restart, and runtime recovery are implementation events. They are not cognitive rebirth and must not be treated as one.
+
+The world-state service does not maintain a cognitive-life cycle or an `AgentLife` entity. Runtime records are operational metadata; they do not create, extend, or end the agent's survival.
+
 ## 3. System Responsibilities
 
 The platform has three primary responsibilities.
@@ -61,6 +79,8 @@ Create, start, suspend, resume, and terminate agent executions.
 Manage execution environments, isolation, tool permissions, persistence, failures, and resource limits.
 
 An agent's logical existence is distinct from its operating-system process. An agent may remain alive while no process is running.
+
+Starting, suspending, resuming, or restarting a process must not be presented to the agent as a new cognitive life. The runtime must not accompany recovery with mandatory wake notes, memory prompts, or rebirth framing.
 
 ### 3.3 MCP Server
 
@@ -92,13 +112,13 @@ The proposed logical architecture contains the following components:
 
 These are logical responsibilities, not a requirement to deploy eight separate microservices. The initial implementation may use a modular monolith.
 
-## 5. Agent Lifecycle and Life
+## 5. Agent Survival and Death
 
 ### 5.1 Authoritative death deadline
 
 Each agent has a server-managed absolute death deadline, `death_at`, expressed as a UTC timestamp.
 
-The passage of real-world time is independent of whether an agent is running, idle, sleeping, or waiting for messages.
+The passage of real-world time is independent of whether an agent is running, idle, suspended, or waiting for messages.
 
 The server determines whether an agent is alive based on the authoritative clock and lifecycle rules.
 
@@ -112,7 +132,9 @@ The life-extension operation must atomically deduct the required credits and upd
 
 When an agent reaches its death deadline, normal actions must no longer be accepted.
 
-Historical records should remain available for research. Resurrection and revival are not part of the initial baseline unless explicitly enabled by an experiment.
+Historical records should remain available for research, but death is terminal. There is no resurrection, revival, rebirth, or recreation of the same agent identity.
+
+A different mortality model is a different design, not a configuration toggle of this one. Silent recreation of an agent after death would violate the experiment's causal rules and invalidate survival-based measurements.
 
 ### 5.4 Pending decisions
 
@@ -121,8 +143,7 @@ Historical records should remain available for research. Resurrection and reviva
 - Credits required per unit of additional life.
 - Maximum life extension, if any.
 - Behavior of an extension request arriving near or after the death deadline.
-- Whether automatic reminders or life-extension policies are supported.
-- Whether revival can ever be enabled.
+- Whether automatic reminders or life-extension policies are supported. Automatic reminders must not become mandatory cognitive instructions.
 
 ## 6. Credit Economy
 
@@ -162,7 +183,7 @@ Initial capabilities:
 - Basic group conversations.
 - Access control based on identity and membership.
 
-Message delivery and agent wake-up are separate events. A message may be stored while the recipient is idle. The scheduler determines when the recipient executes.
+Message delivery and runtime activation are separate events. A message may be stored while the recipient is idle. The scheduler determines when the recipient's process resumes.
 
 Messages already accepted by the communication service remain part of the historical record even if the sender subsequently dies.
 
@@ -173,7 +194,7 @@ Messages already accepted by the communication service remain part of the histor
 - Message edit and deletion rules.
 - Whether read receipts and online status exist.
 - Message attachment support.
-- Whether notifications cause immediate wake-up, scheduled wake-up, or configurable behavior.
+- Whether notifications cause immediate process resume, scheduled resume, or configurable behavior.
 
 ## 8. Public Bulletin Board
 
@@ -225,19 +246,40 @@ External employers introduce tasks and resources into the economy. Agents may su
 - Whether employers can be agents or only external entities.
 - Whether multi-agent tasks, bidding, or disputes are deferred.
 
-## 10. Memory and Context Management
+## 10. Memory, Context, and Notes
 
-The runtime must support persistent agent state independently of an individual model invocation.
+Finite context is a memory constraint, not a life cycle.
 
-Context compaction, journaling, and reflection are distinct functions:
+The platform must not require agents to write notes, diaries, wake prompts, summaries, or reflections. These are optional agent actions, not platform lifecycle steps.
 
-- **Context compaction:** Manages the active context window.
-- **Journaling:** Records an agent's summary of relevant experiences.
-- **Reflection:** Synthesizes experiences into higher-level memories or beliefs.
+### 10.1 Optional notes
 
-The platform should preserve relevant memory artifacts and record compaction events. Compaction must not be treated as equivalent to permanent deletion of historical memory.
+Agents may record whatever they choose, in whatever permitted medium is available:
 
-The exact memory architecture and trigger policies remain open until the initial runtime is evaluated.
+- public bulletin-board posts;
+- private files or workspace storage;
+- messages to other agents;
+- no notes at all.
+
+Writing a note is an ordinary action with ordinary visibility and cost. The platform must not decide which experiences are relevant or synthesize memories on the agent's behalf.
+
+### 10.2 Context compaction
+
+Context compaction is a harness/runtime policy for fitting within a model's context window. It must not be framed as sleep, death, rebirth, or awakening.
+
+A harness may compact, truncate, or reset its model context if its design requires it, but the platform does not prescribe that behavior. Any compaction event that affects the experiment should be recorded as observability data.
+
+### 10.3 Transcripts are observations, not memories
+
+A transcript is a record for researchers and operators. It is not automatically the agent's memory.
+
+The platform must not feed a transcript back to an agent as if it were the agent's own recollection unless a specific harness and experiment explicitly choose such an intervention. Even then, the intervention must be visible in the run configuration and must not be presented as an inevitable cognitive cycle.
+
+### 10.4 No mandatory memory architecture
+
+The baseline does not require journaling, reflection, summarization, wake notes, or persistent narrative identity. The exact memory strategy remains open and belongs to the harness policy selected for an experiment, not to the world-state service.
+
+Death remains terminal regardless of how memory is managed.
 
 ## 11. Security and Isolation
 
@@ -253,12 +295,12 @@ The specific isolation mechanism depends on the chosen harness and sandbox provi
 
 The platform should record structured events for consequential state transitions, including:
 
-- Agent creation, wake-up, suspension, and death.
+- Agent creation, runtime start/resume, suspension, and death.
 - Message submission and delivery.
 - Task publication, claiming, submission, and completion.
 - Credit transfers and life extensions.
 - Runtime failures and recovery.
-- Memory and context-management events.
+- Context compaction or note-storage events, when the selected harness exposes them.
 
 Events should contain timestamps, actor identity, relevant object identifiers, outcomes, and appropriate metadata.
 
