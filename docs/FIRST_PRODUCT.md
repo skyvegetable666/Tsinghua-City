@@ -88,6 +88,7 @@ the first social milestone.
    - archive/genesis-lab/supervisor/compose.py (per-agent containers)
    - archive/genesis-lab/supervisor/dockerctl.py (thin compose wrapper)
    - adapt workspace, network, token, and world API settings
+   - implemented in tsinghua_city/docker_runtime.py
 4. Add a run configuration:
    - model
    - system prompt
@@ -119,8 +120,8 @@ The first product is successful when:
 - The initial harness port exists in `tsinghua_city/claude_harness.py` and
   `tsinghua_city/claude_agent.py`; it passes fake-CLI tests but has not run
   against a live authenticated model.
-- The sandbox image reference exists in `deploy/agent.Dockerfile`; the Docker
-  runtime adapter is not wired yet.
+- The sandbox image and Docker runtime adapter exist; the adapter passes
+  fake-Docker tests but the full image/container stack has not run.
 - Docker Desktop is installed on the Windows host, but WSL integration is not
   enabled, so the Docker CLI is unavailable inside this workspace.
 - The Claude Code CLI is installed and reports version 2.1.296. The archived

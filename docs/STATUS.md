@@ -28,6 +28,7 @@ Tsinghua City now has an authoritative world-state service, MCP capabilities, a 
 | Runtime recovery | process-loss mark, on-failure restart, terminate crashed |
 | Reference harness | deterministic MCP policy + two-agent demo + JSONL journals |
 | Claude harness | Claude Code CLI stream-json port + JSONL trace; fake-CLI tested |
+| Docker adapter | container command/config/workspace construction; fake-Docker tested |
 | Canvas | early admin monitor at /canvas: worlds/agents/runtimes/tasks/posts/events |
 | Token rotation | runtime start/resume/auto-restart; old tokens invalidated |
 | Runtime MCP config | generated per process; removed on stop |
@@ -39,7 +40,7 @@ Tsinghua City now has an authoritative world-state service, MCP capabilities, a 
 Local checkpoint:
 
 ~~~text
-37 passed, 2 skipped
+38 passed, 2 skipped
 ~~~
 
 The skipped tests are Postgres-only concurrency checks. The two-agent reference
@@ -60,17 +61,18 @@ writes a new MCP config token and invalidates the previous one. It passes
 locally.
 
 **Post-9e4c066 additions:** deterministic reference MCP harness, two-agent demo,
-MCP list-content decoding tests, an early Canvas, and a Claude Code harness
-port with fake-CLI tests. These are local-verified but not yet tester-verified.
-Current Postgres expectation is `39 passed`.
+MCP list-content decoding tests, an early Canvas, a Claude Code harness port,
+and a Docker runtime adapter with fake-CLI/fake-Docker tests. These are
+local-verified but not yet tester-verified. Current Postgres expectation is
+`40 passed`.
 
 ## Known gaps
 
-- No container/OpenHands/E2B sandbox; local adapter is not isolation.
+- No live-tested container sandbox; the Docker adapter exists but the image/container stack has not run. The local adapter is not isolation.
 - No safe-point injection into an active model call.
 - No durable multi-worker runtime leases or ownership.
 - The deterministic reference harness is not a model; the Claude harness is ported but has not been run against a live authenticated model.
-- The Docker image exists, but no Docker runtime adapter is wired and Docker WSL integration is unavailable.
+- The Docker adapter and image exist, but the full container stack is untested and Docker WSL integration is unavailable.
 - Canvas is an early admin monitor, not the final experiment UI/run comparison.
 - Named external-employer accounts/budgets are not implemented.
 - In-process scheduler is single-worker and not durable.
@@ -81,7 +83,7 @@ Current Postgres expectation is `39 passed`.
 A usable alpha demo needs:
 
 1. live Claude Code harness verification with a real model;
-2. Docker runtime adapter and private workspace;
+2. live Docker container verification and private workspace;
 3. run transcript and monitor log;
 4. model/prompt/secret run configuration;
 5. one real agent through one task, then two agents through a task cycle.
