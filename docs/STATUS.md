@@ -2,15 +2,17 @@
 
 - **As of:** 2026-10-19
 - **Base checkpoint:** `36c3f48`
-- **Stage:** Docker sandbox / real Claude Code smoke verified
+- **Stage:** Docker sandbox verified; real model credentials pending
 - **Design baseline:** [../Design.md](../Design.md)
 
 ## Summary
 
 Tsinghua City has an authoritative world-state service, MCP capabilities, a task
 market with escrow, a public board, and interchangeable local/Docker runtimes.
-The Docker sandbox packages the official Claude Code CLI and has completed a
-real two-agent task cycle. This remains a single-machine research alpha.
+The Docker sandbox packages the official Claude Code CLI and has completed real
+Docker integration tests for isolation, workspace persistence, restart, and the
+deterministic two-agent MCP task cycle. A live model run still requires Claude
+credentials in this environment. This remains a single-machine research alpha.
 
 ## Implemented
 
@@ -26,11 +28,13 @@ real two-agent task cycle. This remains a single-machine research alpha.
 | Public bulletin board | done |
 | Idempotency | transfers, life, messages, task publication |
 | MCP | world, task, board tools; real stdio test |
-| Alembic | 0001 through 0005 |
+| Alembic | 0001 through 0006 |
 | Maintenance scheduler | deadlines, terminal death, crash detection, restart |
 | Local runtime manager | start/stop/suspend/resume/terminate/reconcile |
 | Docker sandbox | non-root, private per-agent and shared per-world workspaces, isolated networks, read-only root, resource limits; image smoke verified |
 | Image smoke | Docker Desktop Windows: non-root 1000, writable /work and /shared, flock, Claude Code 2.1.296, Python import |
+| Docker integration | 4 real tests via Docker Desktop Windows CLI shim: isolation, token rotation, persistence, restart, MCP task/life cycle |
+| Live model | not yet verified; no ANTHROPIC_* credentials in this environment |
 | Claude Code harness | official CLI, existing MCP, bounded turns, native session resume |
 | Run launch | admin Claude start/stop endpoint and Canvas controls |
 | Doctor | database, directories, Docker daemon/image, Claude CLI/credentials |

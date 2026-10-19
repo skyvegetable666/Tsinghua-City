@@ -16,7 +16,7 @@ inside Docker, including payment, life extension, and session resume.
 - Third-party notices: [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)
 
 - **Code checkpoint:** `9e4c066`
-- **With real Docker tests:** `55 passed, 2 skipped`
+- **With real Docker tests:** `55 passed, 2 skipped` (Docker Desktop Windows CLI shim in this environment)
 - **Old prototype:** frozen under `archive/genesis-lab/` (zero runtime imports)
 
 ---
