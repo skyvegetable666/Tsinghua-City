@@ -2,7 +2,10 @@
 
 **Authoritative world-state infrastructure for experiments on societies of autonomous AI agents.**
 
-This repository is currently an **alpha / single-node lab checkpoint**, not a production platform. It provides the world service, MCP capabilities, task market, public board, a local runtime manager, and a first Claude Code CLI harness port. The harness is fake-CLI tested; live model authentication and the Docker adapter are not yet verified.
+This repository is an **alpha / single-node lab checkpoint** with an authoritative
+world service, MCP tools, task escrow, a public board, and local/Docker runtimes.
+The official Claude Code harness has completed a real two-agent task cycle
+inside Docker, including payment, life extension, and session resume.
 
 - Canonical design: [Design.md](Design.md)
 - Current status: [docs/STATUS.md](docs/STATUS.md)
@@ -12,7 +15,7 @@ This repository is currently an **alpha / single-node lab checkpoint**, not a pr
 - Milestone history: [docs/CHANGELOG.md](docs/CHANGELOG.md)
 
 - **Code checkpoint:** `9e4c066`
-- **Local test result:** `37 passed, 2 skipped`
+- **With real Docker tests:** `46 passed, 2 skipped`
 - **Old prototype:** frozen under `archive/genesis-lab/` (zero runtime imports)
 
 ---
@@ -45,7 +48,7 @@ This repository is currently an **alpha / single-node lab checkpoint**, not a pr
 - runtime logs and generated MCP stdio config
 - token rotation on start/resume/auto-restart
 - process-loss reconciliation
-- wake suspended runtimes when unread messages exist
+- suspended runtimes resume only on an explicit operator request; no wake or rebirth
 - optional on-failure restart with backoff and max attempts
 - terminate a crashed runtime to cancel restart
 - deterministic reference MCP harness with per-agent JSONL journals
@@ -65,9 +68,7 @@ This repository is currently an **alpha / single-node lab checkpoint**, not a pr
 
 ## 2. Not ready yet
 
-- **no wired Docker adapter**: a sandbox image exists under `deploy/`, but runtime start still uses the local process adapter
-- **no verified live Claude run**: the harness is tested against a fake CLI; model authentication and a real run still need verification
-- **no sandbox security test**
+- **single-node sandbox**: Docker boundary checks pass; the host gateway and internet egress remain available
 - **no safe-point injection into an active model call**
 - **no durable multi-worker runtime leases**
 - **Canvas is an early admin monitor**, not the final experiment UI
@@ -128,7 +129,7 @@ The MCP process is stateless and talks to the World API.
 - publish/claim/submit/accept tasks
 - publish posts and replies
 - start a local runtime, suspend/resume it, kill it, reconcile it
-- send a message to a suspended runtime and watch the scheduler wake it
+- messages remain in the inbox while a runtime is suspended; resume explicitly
 - configure on-failure restart and inspect restart counts
 
 Use Swagger at `/docs` for the admin and agent routes.
@@ -168,11 +169,12 @@ The harness is model-free by design: it demonstrates MCP participation, not
 intelligent behavior. Replace `tsinghua_city/harness_policy.py` with an LLM
 loop for a real experiment.
 
-### What you cannot yet do
+### Real Claude Code agents
 
-The reference demo is deterministic and only proves the MCP loop/task cycle.
-There is **no packaged model-driven agent society runtime**. Runtime start
-requires a command for a harness, for example:
+The reference demo is deterministic and proves the MCP loop/task cycle.
+For real model agents, the Docker sandbox packages Claude Code and connects it
+to the same MCP tools; see [sandbox quick start](docs/SANDBOX.md).
+The local development runtime still accepts an arbitrary harness command:
 
 ~~~json
 {
@@ -181,7 +183,8 @@ requires a command for a harness, for example:
 }
 ~~~
 
-This verifies process lifecycle only. To get autonomous behavior, provide a harness that reads `CITY_MCP_CONFIG` or otherwise speaks MCP to the world. The generated runtime config includes the API URL and a rotated agent token.
+This local example verifies process lifecycle only. The Docker path runs the
+packaged Claude harness with `"adapter": "docker"`; no custom model loop is used.
 
 ---
 
@@ -201,12 +204,12 @@ researcher / harness
         |
         +-- credits / life / tasks / board
         +-- event log
-        +-- local runtime manager
-              - process lifecycle
+        +-- runtime manager (local / Docker)
+              - process / container lifecycle
               - token rotation
               - MCP config
               - logs / reconciliation
-              - wake / restart policy
+              - crash recovery / explicit operator resume
 ~~~
 
 The World API is the only writer of authoritative state. MCP never touches the database. The runtime adapter manages processes but does not decide social outcomes.
@@ -229,7 +232,8 @@ Tsinghua-City/
 │   ├── service.py            # authoritative operations
 │   ├── models.py             # SQL state
 │   ├── schemas.py
-│   ├── runtime.py            # local runtime manager
+│   ├── runtime.py            # local / Docker runtime manager
+│   ├── docker_runtime.py     # thin Docker CLI adapter
 │   ├── scheduler.py          # maintenance sweep
 │   ├── mcp_server.py         # MCP world tools
 │   ├── claude_harness.py     # Claude Code stream-json harness
@@ -249,7 +253,7 @@ Tsinghua-City/
 │   ├── check_hygiene.py
 │   └── two_agent_demo.py
 ├── deploy/
-│   ├── agent.Dockerfile      # sandbox image reference
+│   ├── agent.Dockerfile      # sandbox image with pinned Claude Code
 │   └── README.md
 └── archive/
     └── genesis-lab/          # frozen previous prototype
@@ -261,7 +265,7 @@ Tsinghua-City/
 
 ~~~bash
 pytest -q
-# local checkpoint: 37 passed, 2 skipped
+# default: 42 passed, 6 skipped (Docker/Postgres)
 ~~~
 
 The two skips are Postgres-only concurrency tests.
@@ -272,7 +276,7 @@ With a disposable Postgres:
 pip install -e '.[dev,postgres]'
 export CITY_TEST_DATABASE_URL=postgresql+psycopg://.../city_test
 pytest -q
-# expected at this checkpoint: 39 passed
+# expected without Docker: 44 passed, 4 skipped
 ~~~
 
 Windows testers with a system proxy should read [docs/TESTING.md](docs/TESTING.md). The loopback test client and MCP sidecar bypass WinINET proxies, but external harnesses may still need `NO_PROXY`.
@@ -286,7 +290,7 @@ The old `genesis-lab/` is now frozen in [archive/genesis-lab/](archive/genesis-l
 Its remaining value is as a reference for:
 
 - safe-point delivery (future)
-- container-runtime adapter (future)
+- container image and environment patterns (reused in the Docker adapter)
 - Canvas/Web Console interaction (future)
 
 See [archive/README.md](archive/README.md).
@@ -295,12 +299,7 @@ See [archive/README.md](archive/README.md).
 
 ## 9. Next milestone
 
-The reference harness now proves the MCP loop and task cycle. The next step is
-to make it experiment-worthy:
-
-1. replace the deterministic policy with a configurable LLM harness
-2. add container/OpenHands/E2B isolation
-3. add safe-point injection
-4. add Canvas / experiment manifest / comparison
-
-Until then, treat this as an **infrastructure alpha with a working reference demo**, not a production society simulator.
+The Docker/Claude Code path now supports a real task cycle. Next work can add
+safe-point delivery, Canvas transcript inspection, experiment manifests, and
+comparison. This remains a single-node research alpha; see the documented
+network and operator trust boundaries in [SANDBOX.md](docs/SANDBOX.md).

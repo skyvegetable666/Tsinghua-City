@@ -29,15 +29,19 @@ def _slug(value: str) -> str:
 
 
 class JsonlTrace:
-    def __init__(self, path: Path) -> None:
+    def __init__(self, path: Path, *, to_stdout: bool = False) -> None:
         self.path = path
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._file = path.open("a", encoding="utf-8")
+        self.to_stdout = to_stdout
 
     def __call__(self, event: dict[str, Any]) -> None:
         record = {"ts": time.time(), **event}
-        self._file.write(json.dumps(record, ensure_ascii=False, default=str) + "\n")
+        line = json.dumps(record, ensure_ascii=False, default=str)
+        self._file.write(line + "\n")
         self._file.flush()
+        if self.to_stdout:
+            print(line, flush=True)
 
     def close(self) -> None:
         self._file.close()
@@ -85,6 +89,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--world-prompt", default=os.environ.get("CITY_WORLD_PROMPT", ""))
     parser.add_argument("--ready-timeout", type=float, default=180.0)
     parser.add_argument("--turn-timeout", type=float, default=900.0)
+    parser.add_argument("--max-turns", type=int, default=30)
+    parser.add_argument("--resume", help="Resume an existing Claude session ID")
+    parser.add_argument(
+        "--trace-stdout", action="store_true", default=os.environ.get("CITY_TRACE_STDOUT") == "1"
+    )
     return parser
 
 
@@ -104,7 +113,9 @@ async def _run(args: argparse.Namespace) -> int:
     trace_path = Path(args.trace_dir).expanduser().resolve() / (
         f"{_slug(agent_name)}-{run_id}.jsonl"
     )
-    trace = JsonlTrace(trace_path)
+    if args.max_turns <= 0 or args.turn_timeout <= 0 or args.ready_timeout <= 0:
+        raise ValueError("turn and timeout limits must be positive")
+    trace = JsonlTrace(trace_path, to_stdout=args.trace_stdout)
     prompt = _read_prompt(args, agent_name, agent_id, world_id)
     harness = ClaudeHarness(
         run_id=run_id,
@@ -116,6 +127,8 @@ async def _run(args: argparse.Namespace) -> int:
         mcp_config=mcp_config,
         trace=trace,
         claude_bin=args.claude_bin,
+        max_turns=args.max_turns,
+        resume_session=args.resume,
     )
     trace(
         {
@@ -138,7 +151,11 @@ async def _run(args: argparse.Namespace) -> int:
         await harness.send_initial(prompt)
         await harness.wait_ready(args.ready_timeout)
         await harness.wait_for_turn(args.turn_timeout)
+        if harness.last_result is None or harness.last_result["is_error"]:
+            raise RuntimeError("Claude returned an error result; inspect the trace")
         await harness.stop(grace=8.0)
+        if harness.exit_code not in (None, 0):
+            raise RuntimeError(f"Claude exited with code {harness.exit_code}")
         status = 0
     except Exception as exc:
         trace({"type": "run_error", "error": f"{type(exc).__name__}: {exc}"})

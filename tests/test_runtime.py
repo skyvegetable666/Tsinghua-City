@@ -82,7 +82,7 @@ def test_runtime_does_not_leak_server_env(client, admin_headers, tmp_path):
 
 
 
-def test_unread_message_wakes_suspended_runtime(client, admin_headers, session_factory):
+def test_unread_message_does_not_resume_suspended_runtime(client, admin_headers, session_factory):
     world = create_world(client, admin_headers)
     alice = create_agent(client, admin_headers, world["id"], "alice")
     bob = create_agent(client, admin_headers, world["id"], "bob")
@@ -99,7 +99,7 @@ def test_unread_message_wakes_suspended_runtime(client, admin_headers, session_f
     sent = client.post(
         "/v1/me/messages",
         headers=agent_headers(bob),
-        json={"to": "alice", "body": "wake up"},
+        json={"to": "alice", "body": "new work is available"},
     )
     assert sent.status_code == 201, sent.text
 
@@ -107,12 +107,36 @@ def test_unread_message_wakes_suspended_runtime(client, admin_headers, session_f
 
     manager = client.app.state.runtime_manager
     result = tick_once(session_factory, manager)
-    assert result["woken_runtimes"] >= 1
+    assert "woken_runtimes" not in result
 
     after = client.get(base, headers=admin)
     assert after.status_code == 200
-    assert after.json()["status"] == "RUNNING"
+    assert after.json()["status"] == "SUSPENDED"
+    assert client.post(base + "/resume", headers=admin).status_code == 200
     client.post(base + "/stop", headers=admin)
+
+
+def test_dead_agent_cannot_resume_or_restart(client, admin_headers, session_factory):
+    from tsinghua_city.models import Agent
+    from tsinghua_city.scheduler import tick_once
+
+    world = create_world(client, admin_headers)
+    alice = create_agent(client, admin_headers, world["id"], "alice")
+    base = f"/v1/worlds/{world['id']}/agents/{alice['id']}/runtime"
+    assert client.post(base + "/start", headers=admin_headers, json={
+        "command": _sleep_command(),
+    }).status_code == 200
+    assert client.post(base + "/suspend", headers=admin_headers).status_code == 200
+    with session_factory() as session:
+        session.get(Agent, alice["id"]).death_at = 0
+        session.commit()
+    tick_once(session_factory, client.app.state.runtime_manager)
+    assert client.post(base + "/resume", headers=admin_headers).status_code == 409
+    assert client.post(base + "/start", headers=admin_headers, json={
+        "command": _sleep_command(),
+    }).status_code == 409
+    with session_factory() as session:
+        assert session.get(Agent, alice["id"]).alive is False
 
 
 def test_runtime_auto_restart_on_failure(client, admin_headers, session_factory):

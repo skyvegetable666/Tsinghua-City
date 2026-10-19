@@ -24,6 +24,7 @@ from pathlib import Path
 log = logging.getLogger("tsinghua_city.claude_harness")
 
 DISALLOWED_TOOLS = "Task,WebFetch,WebSearch,SendMessage,ListAgents,Workflow,EnterWorktree,ExitWorktree"
+WORKSPACE_TOOLS = "Bash,Read,Write,Edit,Glob,Grep,mcp__tsinghua-city__*"
 
 
 def _session_uuid(run_id: str, agent_id: str) -> str:
@@ -45,6 +46,8 @@ class ClaudeHarness:
         on_turn_end: Callable[[dict], Awaitable[None]] | None = None,
         on_exit: Callable[[int], Awaitable[None]] | None = None,
         claude_bin: str = "claude",
+        max_turns: int = 30,
+        resume_session: str | None = None,
     ) -> None:
         self.run_id = run_id
         self.agent_id = agent_id
@@ -57,6 +60,9 @@ class ClaudeHarness:
         self.on_turn_end = on_turn_end
         self.on_exit = on_exit
         self.claude_bin = claude_bin
+        self.max_turns = max_turns
+        self.resume_session = resume_session
+        self.last_result: dict | None = None
 
         self.process: asyncio.subprocess.Process | None = None
         self.ready = asyncio.Event()
@@ -92,11 +98,17 @@ class ClaudeHarness:
             "--dangerously-skip-permissions",
             "--disallowedTools",
             DISALLOWED_TOOLS,
-            "--session-id",
-            _session_uuid(self.run_id, self.agent_id),
+            "--tools",
+            WORKSPACE_TOOLS,
+            "--max-turns",
+            str(self.max_turns),
             "--name",
             self.agent_name,
         ]
+        if self.resume_session:
+            command.extend(["--resume", self.resume_session])
+        else:
+            command.extend(["--session-id", _session_uuid(self.run_id, self.agent_id)])
         if self.model:
             command.extend(["--model", self.model])
         if self.world_prompt.strip():
@@ -184,7 +196,20 @@ class ClaudeHarness:
         await self._write_user(text)
 
     async def wait_for_turn(self, timeout: float = 300.0) -> int:
-        await asyncio.wait_for(self.turn_ended.wait(), timeout=timeout)
+        turn_task = asyncio.create_task(self.turn_ended.wait())
+        exit_task = asyncio.create_task(self.exited.wait())
+        try:
+            await asyncio.wait(
+                {turn_task, exit_task}, timeout=timeout, return_when=asyncio.FIRST_COMPLETED
+            )
+        finally:
+            for task in (turn_task, exit_task):
+                if not task.done():
+                    task.cancel()
+        if not self.turn_ended.is_set():
+            if self.exited.is_set():
+                raise RuntimeError(f"claude exited before a turn result (code {self.exit_code})")
+            raise TimeoutError("claude turn timed out")
         return self.current_turn
 
     async def wait_exit(self, timeout: float | None = None) -> int | None:
@@ -209,6 +234,7 @@ class ClaudeHarness:
             self.current_turn += 1
             self.working = True
             self.turn_ended.clear()
+            self.last_result = None
             self.process.stdin.write((json.dumps(message, ensure_ascii=False) + "\n").encode("utf-8"))
             await self.process.stdin.drain()
         log.info("wrote user turn %s (%s chars)", self.current_turn, len(text))
@@ -379,6 +405,7 @@ class ClaudeHarness:
                 "cost_usd": event.get("total_cost_usd") or 0,
                 "num_turns": event.get("num_turns"),
             }
+            self.last_result = result
             self.trace(result)
             self.turn_ended.set()
             log.info(

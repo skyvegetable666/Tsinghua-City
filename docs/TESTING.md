@@ -1,8 +1,8 @@
 # Testing guide
 
 - **Code checkpoint:** `9e4c066`
-- **Default expectation:** `37 passed, 2 skipped`
-- **Postgres expectation:** `39 passed`
+- **Default expectation:** `42 passed, 6 skipped` (four Docker + two Postgres checks)
+- **With Docker:** `46 passed, 2 skipped`
 
 ## 1. Local setup
 
@@ -18,6 +18,16 @@ python scripts/check_hygiene.py
 ~~~
 
 Requirements: Python 3.11+; current test environment uses 3.12/3.13.
+
+Real Docker boundary and MCP tests:
+
+```sh
+docker build -f deploy/agent.Dockerfile -t tsinghua-city-agent:0.1 .
+CITY_TEST_DOCKER=1 pytest -q
+```
+
+See [SANDBOX.md](SANDBOX.md) for what these checks cover and for the separate
+real-model setup; the Docker tests themselves make no paid model requests.
 
 ## 2. Windows system proxy
 
@@ -47,7 +57,7 @@ Use a **disposable** database. The fixture drops and recreates tables.
 pip install -e '.[dev,postgres]'
 export CITY_TEST_DATABASE_URL=postgresql+psycopg://postgres:city@127.0.0.1:5432/city_test
 pytest -q
-# expected: 39 passed
+# expected without Docker: 44 passed, 4 skipped
 
 pytest -q tests/test_postgres_concurrency.py -vv
 # both tests must pass; one transfer is 409, the other ok
@@ -83,7 +93,7 @@ GET may report the runtime as CRASHED; that is expected for a finite demo run.
 
 ~~~bash
 pytest -q tests/test_claude_harness.py tests/test_claude_agent.py
-# 2 passed
+# 4 passed
 ~~~
 
 The tests start a fake Claude CLI using the stream-json protocol. They verify
@@ -132,7 +142,7 @@ Check:
 - old agent token returns 401
 - agent process environment does not contain `CITY_ADMIN_TOKEN`
 - suspend stops the process, status `SUSPENDED`
-- send a message to the agent, wait for scheduler or run `tsinghua-city tick`, runtime wakes
+- send a message and run `tsinghua-city tick`: runtime stays suspended; explicitly resume it
 - stop removes the process and MCP config; log remains
 - kill the process, then `GET /runtime` or reconcile marks `CRASHED`
 - with `on_failure`, wait for `next_restart_at` / tick and verify a new pid, `restart_count = 1`, and a changed MCP config token
@@ -140,7 +150,7 @@ Check:
 - exceed `max_restarts`: runtime stays `CRASHED`
 - `terminate` a crashed runtime: status becomes `STOPPED` and no restart occurs
 
-If `serve` is running, its scheduler may wake/restart before manual `tick`. For deterministic manual tests, stop the server or set `CITY_SCHEDULER_ENABLED=0`.
+If `serve` is running, its scheduler may restart crashed processes before manual `tick`. For deterministic manual tests, stop the server or set `CITY_SCHEDULER_ENABLED=0`.
 
 ## 8. Migration checks
 

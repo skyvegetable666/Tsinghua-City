@@ -1,13 +1,16 @@
 # Status — alpha checkpoint
 
-- **As of:** 2026-10-18
-- **Code checkpoint:** `9e4c066`
-- **Stage:** Phase 3 local-runtime baseline / alpha
+- **As of:** 2026-10-19
+- **Base checkpoint:** `36c3f48`
+- **Stage:** Docker sandbox / real Claude Code smoke verified
 - **Design baseline:** [../Design.md](../Design.md)
 
 ## Summary
 
-Tsinghua City now has an authoritative world-state service, MCP capabilities, a task market with escrow, a public board, and a local process runtime manager. It is suitable for **single-machine infrastructure development and harness prototyping**, not for untrusted agents or production experiments.
+Tsinghua City has an authoritative world-state service, MCP capabilities, a task
+market with escrow, a public board, and interchangeable local/Docker runtimes.
+The Docker sandbox packages the official Claude Code CLI and has completed a
+real two-agent task cycle. This remains a single-machine research alpha.
 
 ## Implemented
 
@@ -23,8 +26,11 @@ Tsinghua City now has an authoritative world-state service, MCP capabilities, a 
 | Idempotency | transfers, life, messages, task publication |
 | MCP | world, task, board tools; real stdio test |
 | Alembic | 0001 through 0005 |
-| Maintenance scheduler | deadlines, death, wake, crash detection, restart |
+| Maintenance scheduler | deadlines, terminal death, crash detection, restart |
 | Local runtime manager | start/stop/suspend/resume/terminate/reconcile |
+| Docker sandbox | non-root, private volumes/networks, read-only root, resource limits |
+| Claude Code harness | official CLI, existing MCP, bounded turns, native session resume |
+| Sandbox transcripts | stdout/stderr export per launch, paths in lifecycle events |
 | Runtime recovery | process-loss mark, on-failure restart, terminate crashed |
 | Reference harness | deterministic MCP policy + two-agent demo + JSONL journals |
 | Claude harness | Claude Code CLI stream-json port + JSONL trace; fake-CLI tested |
@@ -36,15 +42,27 @@ Tsinghua City now has an authoritative world-state service, MCP capabilities, a 
 
 ## Verification
 
-Local checkpoint:
+Local checkpoint with real Docker integration enabled:
 
 ~~~text
-37 passed, 2 skipped
+46 passed, 2 skipped
 ~~~
 
 The skipped tests are Postgres-only concurrency checks. The two-agent reference
-demo was also run manually and completed four tasks across alice/bob. The
-Claude harness is tested with a fake CLI, not a live model.
+demo was also run manually and completed four tasks across alice/bob.
+
+Real model validation on macOS Docker Desktop: Claude Code 2.1.296 with an
+Anthropic-compatible GLM 5.2 provider completed four invocations and 16 tool
+calls. Alice published a reward-7 task; Bob wrote an artifact and submitted it;
+Alice accepted and paid it. Both spent one credit to add 60 seconds of life.
+Balances were 50 -> 42 (Alice) and 50 -> 56 (Bob). Both conversations resumed
+their original Claude session IDs; Bob read the artifact after container
+recreation. Disposable containers, networks, and workspaces were cleaned up.
+
+The Docker tests also verify cross-agent filesystem/network separation,
+capability and root restrictions, token rotation, durable workspace recovery,
+crash restart, failed-start rollback, stderr retention, and foreign-resource
+ownership protection. See [SANDBOX.md](SANDBOX.md) for reproduction.
 
 Windows tester, at commit `17af044`:
 
@@ -62,15 +80,15 @@ locally.
 **Post-9e4c066 additions:** deterministic reference MCP harness, two-agent demo,
 MCP list-content decoding tests, an early Canvas, and a Claude Code harness
 port with fake-CLI tests. These are local-verified but not yet tester-verified.
-Current Postgres expectation is `39 passed`.
+The pre-sandbox Postgres expectation was `39 passed`.
 
 ## Known gaps
 
-- No container/OpenHands/E2B sandbox; local adapter is not isolation.
+- Local adapter remains a host process; use the Docker adapter for isolation.
+- Docker has outbound network access and a host API gateway, not an egress allowlist.
 - No safe-point injection into an active model call.
 - No durable multi-worker runtime leases or ownership.
-- The deterministic reference harness is not a model; the Claude harness is ported but has not been run against a live authenticated model.
-- The Docker image exists, but no Docker runtime adapter is wired and Docker WSL integration is unavailable.
+- Finite commands retain the existing CRASHED-on-exit status; inspect exit_code.
 - Canvas is an early admin monitor, not the final experiment UI/run comparison.
 - Named external-employer accounts/budgets are not implemented.
 - In-process scheduler is single-worker and not durable.
@@ -78,15 +96,11 @@ Current Postgres expectation is `39 passed`.
 
 ## Good next checkpoint
 
-A usable alpha demo needs:
-
-1. live Claude Code harness verification with a real model;
-2. Docker runtime adapter and private workspace;
-3. run transcript and monitor log;
-4. model/prompt/secret run configuration;
-5. one real agent through one task, then two agents through a task cycle.
+The first real-agent sandbox/task-cycle slice is verified. The next checkpoint
+can connect transcript inspection to Canvas and add operator cost
+budgets for longer unattended experiments.
 
 See [FIRST_PRODUCT.md](FIRST_PRODUCT.md) for the reuse map and exact P0 order.
 
-The current system has a working deterministic society demo and state
-infrastructure, but not a real-agent, sandboxed product.
+The current system supports both the deterministic contract demo and real
+Claude Code agents inside Docker through the same world API/MCP boundaries.

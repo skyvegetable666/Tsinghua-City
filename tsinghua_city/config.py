@@ -25,6 +25,11 @@ class Settings:
     scheduler_interval_seconds: float = 5.0
     api_url: str = "http://127.0.0.1:8000"
     runtime_log_dir: str = "runs/runtime"
+    docker_image: str = "tsinghua-city-agent:0.1"
+    docker_api_url: str = "http://host.docker.internal:8000"
+    docker_memory: str = "1g"
+    docker_cpus: float = 1.0
+    docker_pids_limit: int = 128
 
     @property
     def uses_default_admin_token(self) -> bool:
@@ -45,6 +50,13 @@ def load_settings() -> Settings:
         ),
         api_url=os.environ.get("CITY_API_URL", "http://127.0.0.1:8000").rstrip("/"),
         runtime_log_dir=os.environ.get("CITY_RUNTIME_LOG_DIR", "runs/runtime"),
+        docker_image=os.environ.get("CITY_DOCKER_IMAGE", "tsinghua-city-agent:0.1"),
+        docker_api_url=os.environ.get(
+            "CITY_DOCKER_API_URL", "http://host.docker.internal:8000"
+        ).rstrip("/"),
+        docker_memory=os.environ.get("CITY_DOCKER_MEMORY", "1g"),
+        docker_cpus=float(os.environ.get("CITY_DOCKER_CPUS", "1")),
+        docker_pids_limit=int(os.environ.get("CITY_DOCKER_PIDS_LIMIT", "128")),
     )
 
 
