@@ -29,6 +29,7 @@ class DockerRuntimeAdapter:
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
         self.log_dir = Path(settings.runtime_log_dir).expanduser().resolve()
+        self.trace_dir = Path(settings.trace_dir).expanduser().resolve()
         if settings.docker_cpus <= 0 or settings.docker_pids_limit <= 0:
             raise ValueError("Docker CPU and PID limits must be positive")
 
@@ -52,6 +53,7 @@ class DockerRuntimeAdapter:
                 marker in (result.stderr or "").lower()
                 for marker in (
                     "no such container", "no such network", "no such volume",
+                    "no such file", "could not find the file",
                     f"network {args[-1]} not found",
                 )
             ):
@@ -79,6 +81,31 @@ class DockerRuntimeAdapter:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(logs or "", encoding="utf-8")
         path.chmod(0o600)
+
+    def _export_traces(self, name: str) -> None:
+        """Copy the container's agent trace directory into the host trace dir.
+
+        Trace export is best-effort: a missing directory must not make stopping
+        a runtime fail. The container is still removed afterwards.
+        """
+        self.trace_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            self.trace_dir.chmod(0o700)
+        except OSError:
+            pass
+        try:
+            self._run(
+                ["cp", f"{name}:/work/transcripts/.", str(self.trace_dir)],
+                timeout=60,
+                missing_ok=True,
+            )
+        except DomainError:
+            return
+        for path in self.trace_dir.glob("*.jsonl"):
+            try:
+                path.chmod(0o600)
+            except OSError:
+                pass
 
     def start(self, *, runtime_id, command, agent_id, world_id, token) -> StartResult:
         if not command or any(not isinstance(part, str) or not part for part in command):
@@ -150,6 +177,7 @@ class DockerRuntimeAdapter:
                 info = self._owned("container", name, runtime.id)
             if runtime.log_path:
                 self._export_logs(name, Path(runtime.log_path))
+            self._export_traces(name)
             exit_code = info["state"]["ExitCode"]
             self._run(["rm", name])
         if self._owned("network", name, runtime.id) is not None:

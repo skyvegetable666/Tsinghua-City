@@ -125,9 +125,10 @@ the result. The default does not repeatedly run completed model instructions.
 
 The existing trace callback writes structured JSONL both under `/work/transcripts`
 and to stdout. Docker stdout/stderr is bounded at 3 x 10 MiB. A status poll
-or stop exports the retained log to the runtime's `log_path`; `docker logs
-city-{runtime_id}` provides live inspection. Claude session files and artifacts
-remain in `/work`. Each launch has a distinct exported log file; the path is
+or stop exports the retained log to the runtime's `log_path`; stopping also
+copies `/work/transcripts/*.jsonl` into the host `CITY_TRACE_DIR` so the
+`/traces` viewer can list them. `docker logs city-{runtime_id}` provides live
+inspection. Claude session files and artifacts remain in `/work`. Each launch has a distinct exported log file; the path is
 also recorded in its runtime start/restart event. Volumes are retained on stop; after retiring an
 agent, explicitly remove its `city-work-{agent_id}` volume when no longer needed.
 

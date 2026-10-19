@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from conftest import create_agent, create_world
 
+from tsinghua_city.config import Settings
+from tsinghua_city.docker_runtime import DockerRuntimeAdapter
 from tsinghua_city.runtime import StartResult
 
 
@@ -27,6 +29,35 @@ class FakeDocker:
         self.running = False
         self.stops += 1
         return 0
+
+
+def test_docker_adapter_exports_traces(tmp_path):
+    trace_dir = tmp_path / "traces"
+    adapter = DockerRuntimeAdapter(
+        Settings(
+            database_url="sqlite://",
+            admin_token="admin-token",
+            trace_dir=str(trace_dir),
+        )
+    )
+    calls = []
+
+    def fake_run(args, **kwargs):
+        calls.append(args)
+        if args[0] == "cp":
+            trace_dir.mkdir(parents=True, exist_ok=True)
+            (trace_dir / "alice-run.jsonl").write_text("{}\n", encoding="utf-8")
+        return ""
+
+    adapter._run = fake_run
+    adapter._export_traces("city-rt_0123456789abcdef01234567")
+    assert calls[0][0] == "cp"
+    assert any(
+        "city-rt_0123456789abcdef01234567:/work/transcripts/." in part
+        for part in calls[0]
+    )
+    assert (trace_dir / "alice-run.jsonl").exists()
+    assert (trace_dir / "alice-run.jsonl").stat().st_mode & 0o777 == 0o600
 
 
 def test_runtime_dispatch_uses_persisted_adapter(client, admin_headers, session_factory):

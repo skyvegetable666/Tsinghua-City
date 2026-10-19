@@ -1,8 +1,8 @@
 # Testing guide
 
 - **Code checkpoint:** `9e4c066`
-- **Default expectation:** `45 passed, 6 skipped` (four Docker + two Postgres checks)
-- **With Docker:** `49 passed, 2 skipped`
+- **Default expectation:** `46 passed, 6 skipped` (four Docker + two Postgres checks)
+- **With Docker:** `50 passed, 2 skipped`
 
 ## 1. Local setup
 
@@ -57,7 +57,7 @@ Use a **disposable** database. The fixture drops and recreates tables.
 pip install -e '.[dev,postgres]'
 export CITY_TEST_DATABASE_URL=postgresql+psycopg://postgres:city@127.0.0.1:5432/city_test
 pytest -q
-# expected without Docker: 47 passed, 4 skipped
+# expected without Docker: 48 passed, 4 skipped
 
 pytest -q tests/test_postgres_concurrency.py -vv
 # both tests must pass; one transfer is 409, the other ok
@@ -110,9 +110,9 @@ pytest -q tests/test_traces.py
 
 The server lists JSONL files under `CITY_TRACE_DIR` (default
 `runs/transcripts`) and serves them at `/traces`. The viewer is read-only and
-uses the admin token. Docker agent traces live under the container's
-`/work/transcripts`; use the Docker log export until a host-side trace export
-is added.
+uses the admin token. Docker stop/crash cleanup copies the container's
+`/work/transcripts/*.jsonl` into the host trace directory; while the container
+is running, use `docker logs` for live inspection.
 
 ## 6. Canvas smoke
 
